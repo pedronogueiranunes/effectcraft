@@ -1,5 +1,5 @@
 asset:        text_animators.json
-title:        EffectCraft text animator presets (Typewriter, Fade Up Characters, Bounce In Words, Tracking In, Scramble, Blur In, Jitter, Drop In Lines)
+title:        EffectCraft text animator presets (Typewriter, Fade Up Characters, Fade Out Words, Bounce In Words, Tracking In, Scramble, Blur In, Jitter, Drop In Lines)
 author:       EffectCraft contributors
 source:       original work
 license:      MIT OR Apache-2.0

@@ -1053,6 +1053,7 @@ Animation
   Text Animation Presets
     Typewriter | layer.applyTextPreset {"preset":"typewriter"}
     Fade Up Characters | layer.applyTextPreset {"preset":"fadeUpCharacters"}
+    Fade Out Words | layer.applyTextPreset {"preset":"fadeOutWords"}
     Bounce In Words | layer.applyTextPreset {"preset":"bounceInWords"}
     Tracking In | layer.applyTextPreset {"preset":"trackingIn"}
     Scramble | layer.applyTextPreset {"preset":"scramble"}

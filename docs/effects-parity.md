@@ -1,6 +1,6 @@
 # Effects parity
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (effect colour labels; earlier change: parameter count and closed issue references re-audited against `upstream/main` 470ea7a3 and the generated effects.md) · **Target:** Adobe After Effects 2026
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-11-12 · **Change:** minor (Fade Out Words preset; previously: effect colour labels; earlier change: parameter count and closed issue references re-audited against `upstream/main` 470ea7a3 and the generated effects.md) · **Target:** Adobe After Effects 2026
 
 Effects are the deepest single area of After Effects. This page separates the four questions
 that a single "306 of 306" hides: does each effect exist, does it run fast, does it look like
@@ -16,7 +16,7 @@ After Effects', and does the preset library exist. The per-effect catalogue is t
 | On the GPU | **280** (92%) | Measured: registry flags; GPU vs CPU agreement tested per effect |
 | 32-bit float, no clamping | 306 | Measured: registry flags |
 | **Rendered output matches After Effects** | **partly measured** | Some colour effects are checked against After Effects 2026 renders of our own test projects: Tint, Tritone, Black & White, Exposure, Levels, Curves, Luma Key, Extract, 4-Color Gradient and Fill within 1–3/255, Brightness & Contrast up to 6.2/255 (Color Correction, Generate and Keying rows below); Radial Blur, Glow, Venetian Blinds, Radial Wipe, Fractal / Turbulent Noise and Transform are checked the same way (rows below); every other effect is unmeasured. `effectcraft_effects::fidelity::compare_frames` exists for the corpus ([fidelity/README.md](fidelity/README.md)); simulation effects are pinned by golden hashes of our own output (M13.27) |
-| Animation presets | **76** original presets (8 text-animator, 23 Transitions, 23 Backgrounds, 22 Behaviors) against After Effects' **621** `.ffx` presets | Measured: `crates/engine/presets/text_animators.json`, `crates/engine/presets/transitions.json`, `crates/engine/presets/backgrounds.json`, `crates/engine/presets/behaviors.json`; the After Effects `Presets` folder |
+| Animation presets | **77** original presets (9 text-animator, 23 Transitions, 23 Backgrounds, 22 Behaviors) against After Effects' **621** `.ffx` presets | Measured: `crates/engine/presets/text_animators.json`, `crates/engine/presets/transitions.json`, `crates/engine/presets/backgrounds.json`, `crates/engine/presets/behaviors.json`; the After Effects `Presets` folder |
 | 26.x additions | Curl Noise (26.3) present (#463 open); effect colour labels (26.5) present in Effect Controls only, not in the Timeline; the rebuilt Effect Controls (26.5) missing | Release notes |
 
 **Breadth ≈ 85%** (presets weigh in; the effects themselves are ≈ 100%). **Ready ≈ 40%**: until a
@@ -50,6 +50,14 @@ corpus compares renders, each effect is assumed to differ somewhere, and users k
 
 Third-party bundles in After Effects (Cineware, Mocha AE) are out of scope; Keylight is
 implemented under a generic name ("Key Light").
+
+## Fade Out Words
+
+Animation ▸ Text Animation Presets ▸ Fade Out Words fades whole words in reading order
+from fully visible to transparent over 1.5 layer seconds, starting at the playhead. It also
+appears in Effects & Presets and is available through `layer.applyTextPreset` with
+`preset: "fadeOutWords"`. Applying it is one undo step; animator settings remain editable.
+This is an original EffectCraft animation, not a measured match to an Adobe preset.
 
 ## Estimate
 

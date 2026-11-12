@@ -478,7 +478,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Apply Text Animation Preset",
             [],
             None,
-            "{layer?, preset: typewriter|fadeUpCharacters|bounceInWords|trackingIn|scramble|blurIn|jitter|dropInLines}",
+            "{layer?, preset: typewriter|fadeUpCharacters|fadeOutWords|bounceInWords|trackingIn|scramble|blurIn|jitter|dropInLines}",
             has_text_layer,
             apply_preset
         ),

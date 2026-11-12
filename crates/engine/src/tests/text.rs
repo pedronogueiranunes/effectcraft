@@ -160,7 +160,7 @@ fn presets_apply_render_and_round_trip() {
     let (mut s, t) = session();
     let list = s.execute("text.presets", json!({})).unwrap();
     let ids: Vec<String> = list.as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_string()).collect();
-    assert!(ids.len() >= 5 && ids.len() <= 8, "{ids:?}");
+    assert_eq!(ids.len(), 9, "{ids:?}");
     let cid = s.active_comp_id().unwrap();
     for id in &ids {
         let before = s.active_comp().unwrap().layers[0].props.group("text/animators").unwrap().children.len();
@@ -201,6 +201,7 @@ fn cached_text_presets_keep_the_catalog_and_application_independent() {
     let expected = [
         ("typewriter", "Typewriter"),
         ("fadeUpCharacters", "Fade Up Characters"),
+        ("fadeOutWords", "Fade Out Words"),
         ("bounceInWords", "Bounce In Words"),
         ("trackingIn", "Tracking In"),
         ("scramble", "Scramble"),
@@ -268,6 +269,7 @@ fn menus_have_text_animation_entries() {
     assert!(has(&["Animation", "Animate Text", "Fill Color", "Hue"], "layer.addTextAnimator"));
     assert!(has(&["Animation", "Add Text Selector", "Wiggly"], "text.addSelector"));
     assert!(has(&["Animation", "Text Animation Presets", "Typewriter"], "layer.applyTextPreset"));
+    assert!(has(&["Animation", "Text Animation Presets", "Fade Out Words"], "layer.applyTextPreset"));
     // Every preset in the menu exists.
     let ids: Vec<String> = crate::text_presets().into_iter().map(|p| p.0).collect();
     for (_, e) in entries.iter().filter(|(_, e)| e.command == "layer.applyTextPreset") {
@@ -299,4 +301,62 @@ fn duplicate_copies_selected_text_selector_not_the_layer() {
     s.execute("edit.duplicate", json!({})).unwrap();
     assert_eq!(s.active_comp().unwrap().layers.len(), 1);
     assert_eq!(anims(&s).groups().count(), 2, "the animator is copied");
+}
+
+#[test]
+fn fade_out_words_fades_whole_words_in_reading_order() {
+    use effectcraft_render::{EvalCtx, RenderOpts, text};
+    use effectcraft_time::Tick;
+    let (mut s, layer) = session();
+    s.execute("layer.setText", json!({"layer":layer,"text":"AA BB\nCC"})).unwrap();
+    let cid = s.active_comp_id().unwrap();
+    let opts = RenderOpts::default();
+    let plain = s.render(cid, Tick::ZERO, opts);
+    assert!(plain.data.iter().any(|p| p[3] > 0.5));
+    let before = s.project.clone();
+    s.execute("layer.applyTextPreset", json!({"layer":layer,"preset":"fadeOutWords"})).unwrap();
+    let applied = s.project.clone();
+    assert_eq!(s.render(cid, Tick::ZERO, opts).data, plain.data);
+    let comp = s.active_comp().unwrap();
+    let l = &comp.layers[0];
+    let ctx = EvalCtx::new(&s.project, cid, comp, Tick::from_seconds_f64(0.75));
+    let layout = effectcraft_text::layout_doc(&text::source_text(&ctx, l).unwrap());
+    let states = text::char_transforms(&ctx, l, l.props.sub("text").unwrap(), &layout);
+    for (a, b) in [(0, 1), (3, 4), (5, 6)] {
+        assert_eq!(states[a].opacity, states[b].opacity);
+        assert!(states[a].opacity > 0.0 && states[a].opacity < 100.0);
+        assert_eq!(states[a].offset, [0.0; 3]);
+    }
+    assert!(states[0].opacity < states[3].opacity && states[3].opacity < states[5].opacity);
+    let middle = s.render(cid, Tick::from_seconds_f64(0.75), opts);
+    assert_ne!(middle.data, plain.data);
+    assert!(middle.data.iter().any(|p| p[3] > 0.0));
+    let end = Tick::from_seconds_f64(1.5);
+    assert!(s.render(cid, end, opts).data.iter().all(|p| p[3] == 0.0));
+    let loaded = Project::from_json(&s.project.to_json()).unwrap();
+    assert_eq!(*s.project, loaded);
+    let frame = effectcraft_render::Renderer::new(&loaded, &effectcraft_render::NoFootage, opts).comp_frame(cid, end);
+    assert!(frame.data.iter().all(|p| p[3] == 0.0));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.project, before);
+    s.execute("edit.redo", json!({})).unwrap();
+    assert_eq!(s.project, applied);
+}
+
+#[test]
+fn fade_out_words_keys_use_playhead_and_layer_time() {
+    use effectcraft_time::{FrameRate, Tick};
+    for rate in [FrameRate::FPS_24, FrameRate::FPS_29_97, FrameRate::FPS_60] {
+        let (mut s, layer) = session();
+        s.execute("comp.settings", json!({"frameRate":rate.as_f64()})).unwrap();
+        s.execute("layer.timing", json!({"layers":[layer],"start":1})).unwrap();
+        s.execute("layer.timeStretch", json!({"layers":[layer],"percent":200})).unwrap();
+        let at = rate.tick_of(75);
+        s.execute("time.set", json!({"time":at.seconds()})).unwrap();
+        s.execute("layer.applyTextPreset", json!({"layer":layer,"preset":"Fade Out Words"})).unwrap();
+        let l = &s.active_comp().unwrap().layers[0];
+        let keys = &l.props.prop("text/animators/#1/selectors/#1/offset").unwrap().keys;
+        assert_eq!(keys[0].time, l.layer_time(at));
+        assert_eq!(keys[1].time - keys[0].time, Tick::from_seconds_f64(1.5));
+    }
 }

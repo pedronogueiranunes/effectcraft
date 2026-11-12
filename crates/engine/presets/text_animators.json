@@ -40,6 +40,25 @@
       ]
     },
     {
+      "id": "fadeOutWords",
+      "name": "Fade Out Words",
+      "description": "Words fade away one after another, in reading order.",
+      "animators": [
+        {
+          "name": "Fade Out Words",
+          "properties": { "opacity": 0 },
+          "selectors": [
+            {
+              "kind": "range",
+              "set": { "advanced/basedOn": 2, "advanced/shape": 2, "advanced/easeHigh": 50, "advanced/easeLow": 50 },
+              "keys": { "offset": [[0, -100], [1.5, 100]] },
+              "ease": true
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "bounceInWords",
       "name": "Bounce In Words",
       "description": "Words scale up from nothing with an overshoot, one after another.",
