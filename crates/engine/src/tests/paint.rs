@@ -567,3 +567,64 @@ fn puppet_pin_recording_makes_keys_at_the_frame_rate() {
     assert_eq!(r["frames"], 9, "50 %: half the frames");
     assert!(s.execute("puppet.recordPin", json!({"layer": id, "pin": pin, "samples": []})).is_err());
 }
+
+/// #3644 item 3: a new pin can be keyed without querying its property tree.
+#[test]
+fn puppet_position_reference_addresses_the_new_pin_and_survives_renames_and_undo() {
+    let (mut s, id) = setup();
+    let mut pins = vec![];
+    for (kind, at, new_mesh) in [("position", [10, 30], false), ("advanced", [90, 30], false), ("position", [50, 30], true)] {
+        let before = s.project.clone();
+        let undo = s.history.undo.len();
+        let r = s.execute("puppet.addPin", json!({"layer":id,"kind":kind,"position":at,"newMesh":new_mesh})).unwrap();
+        let uid = r["position"]["uid"].as_u64().expect("the Position leaf is returned");
+        let path = r["position"]["path"].as_str().expect("the Position path is returned").to_owned();
+        let l = layer(&s, id);
+        let pin = l.props.find_group(r["pin"].as_u64().unwrap()).unwrap();
+        assert_eq!(pin.get("position").unwrap().uid, uid);
+        assert_ne!(r["pin"], uid);
+        assert_eq!(l.props.prop(&path).unwrap().uid, uid);
+        assert_eq!(s.history.undo.len(), undo + 1);
+        let added = s.project.clone();
+        assert!(s.undo());
+        assert_eq!(s.project, before);
+        assert!(layer(&s, id).props.prop(&path).is_none());
+        assert!(s.redo());
+        assert_eq!(s.project, added);
+        assert_eq!(layer(&s, id).props.prop(&path).unwrap().uid, uid);
+        pins.push((r, uid, path, at));
+    }
+    assert_eq!(pins[0].0["mesh"], pins[1].0["mesh"]);
+    assert_ne!(pins[0].0["mesh"], pins[2].0["mesh"]);
+    for (i, (r, uid, path, at)) in pins.iter().enumerate() {
+        s.execute("prop.renameGroup", json!({"layer":id,"prop":r["pin"],"name":format!("Renamed {i}")})).unwrap();
+        s.execute("prop.renameGroup", json!({"layer":id,"prop":r["effect"],"name":"Renamed effect"})).unwrap();
+        s.execute("prop.renameGroup", json!({"layer":id,"prop":r["mesh"],"name":format!("Mesh renamed {i}")})).unwrap();
+        s.execute("prop.addKey", json!({"layer":id,"path":path,"time":1,"value":[at[0],at[1]+10]})).unwrap();
+        let read = s.execute("prop.get", json!({"layer":id,"prop":uid,"time":1})).unwrap();
+        assert_eq!(read["uid"], *uid);
+        assert_eq!(read["value"], json!([at[0] as f64, (at[1] + 10) as f64]));
+        assert_eq!(read["keys"].as_array().unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn puppet_position_reference_is_null_only_for_pins_without_position() {
+    let (mut s, id) = setup();
+    for kind in ["bend", "starch", "overlap"] {
+        let r = s.execute("puppet.addPin", json!({"layer":id,"kind":kind,"position":[50,30]})).unwrap();
+        assert!(r.as_object().unwrap().contains_key("position"));
+        let l = layer(&s, id);
+        let pin = l.props.find_group(r["pin"].as_u64().unwrap()).unwrap();
+        if kind == "bend" {
+            assert!(r["position"].is_null());
+            assert!(pin.get("position").is_none());
+        } else {
+            let read = s.execute("prop.get", json!({"layer":id,"path":r["position"]["path"]})).unwrap();
+            assert_eq!(read["uid"], r["position"]["uid"]);
+            for (value, expected) in read["value"].as_array().unwrap().iter().zip([50.0, 30.0]) {
+                assert!((value.as_f64().unwrap() - expected).abs() < 1e-9);
+            }
+        }
+    }
+}

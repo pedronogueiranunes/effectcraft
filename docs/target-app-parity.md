@@ -1175,3 +1175,12 @@ top of this page and in items 16–18 above.
 | 2026-10-05 | minor | Checklist updated for M3.9–M4.12 (as `docs/parity.md`) |
 | 2026-10-04 | major | Checklist audit at `d39c0e8`: ≈ 99% weighted breadth, 89 / 3 / 0 of 92 |
 | 2026-10-02 | major | First audit: ≈ 64% weighted breadth |
+
+### Update: Puppet Position references (#3644 item 3, 2026-11-14)
+
+`puppet.addPin` returns the new Position leaf's UID and UID path alongside the existing pin,
+mesh, effect and rest-point fields. Callers can key or edit it through the existing commands
+without querying the property tree. Bend pins report a null reference. Regression tests cover
+multiple pins and meshes, pin/effect renames, leaf addressing and creation undo/redo. This is an
+agent workflow improvement; it makes no new rendering or After Effects fidelity claim and does
+not address the other items in #3644.

@@ -173,7 +173,7 @@ fn add_pin(s: &mut Session, p: &Value) -> Result<Value> {
         PinKind::Overlap => "Add Overlap Pin",
         _ => "Add Puppet Pin",
     };
-    let (fx, mesh, pin) = s.edit(label, None, |proj, st| {
+    let (fx, mesh, pin, position) = s.edit(label, None, |proj, st| {
         let mut next = proj.next_id;
         let l = layer_mut(proj, cid, lid)?;
         let fxg = l.props.sub_mut("effects").ok_or_else(|| bad(cmd, "no effects"))?;
@@ -210,14 +210,22 @@ fn add_pin(s: &mut Session, p: &Value) -> Result<Value> {
                 pos.value = KV::Vec2(rest);
             }
         }
+        let position_uid = pin.get("position").map(|pos| pos.uid);
         let pin_uid = pin.uid;
         let deform = mg.sub_mut("deform").ok_or_else(|| bad(cmd, "mesh has no Deform group"))?;
         deform.children.push(pin.into());
+        // #3644: return a leaf reference callers can key immediately. UID paths survive renames.
+        let position = match position_uid {
+            Some(uid) => Some(json!({"uid": uid, "path": l.props.path_of(uid).ok_or_else(|| bad(cmd, "pin Position property missing"))?})),
+            None => None, // Bend pins have no Position property.
+        };
         proj.next_id = next;
         st.selected_props = vec![(lid, pin_uid)];
-        Ok((fx_uid, mesh_uid, pin_uid))
+        Ok((fx_uid, mesh_uid, pin_uid, position))
     })?;
-    Ok(json!({"effect": fx, "mesh": mesh, "pin": pin, "rest": [target.map(|x| x.1).unwrap_or(at)[0], target.map(|x| x.1).unwrap_or(at)[1]]}))
+    Ok(
+        json!({"effect": fx, "mesh": mesh, "pin": pin, "position": position, "rest": [target.map(|x| x.1).unwrap_or(at)[0], target.map(|x| x.1).unwrap_or(at)[1]]}),
+    )
 }
 
 /// The pin groups of a layer's Puppet effects, in stack order.

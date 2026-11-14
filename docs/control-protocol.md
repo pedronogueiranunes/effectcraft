@@ -57,6 +57,11 @@ Useful query commands for `engine.execute` (they aren't journaled or undoable): 
 export formats, parity summary), `jobs.list` (Progress panel jobs, e.g. the background
 `footage.check` after File ▸ Open).
 
+`puppet.addPin` also returns `position: {uid, path}`, an immediately usable Position leaf
+reference for `prop.get`, `prop.set`, `prop.addKey` and `prop.setExpression` (#3644, item 3).
+The UID path survives group renames. Bend pins return `position: null`; rejected placements
+keep the existing `{pin: null, changed: false}` response.
+
 Every engine command is reachable through `engine.execute`, and every interactive widget of every
 panel registers an element id; both are enforced by `crates/ui-egui/tests/it/ui_agent_audit.rs`.
 

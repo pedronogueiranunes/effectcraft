@@ -756,6 +756,12 @@ in the Plug-in Library: [publishing-plugins.md](publishing-plugins.md).
 * `edit.history.list` lists every undo state as a tree (undoing then editing keeps the undone
   states as a branch); `edit.history.goto {"index": n}` (or `id`, or `steps`) jumps to any of
   them. MCP: the `history` tool.
+* `puppet.addPin {"layer": "#1", "position": [x, y]}` returns `effect`, `mesh`, `pin`, `rest`
+  and `position: {uid, path}` for the new pin's Position leaf (#3644, item 3). Pass the returned
+  `position.uid` as `prop`, or `position.path` as `path`, to `prop.addKey`, `prop.set` or
+  `prop.setExpression` without another property-tree query. The path uses UIDs and survives
+  renaming groups. Bend pins return `position: null`; a rejected placement still returns
+  `{pin: null, changed: false}` and creates no property.
 * `puppet.recordPin {"layer": "#1", "pin": "Puppet Pin 1", "samples": [[t, x, y]…]}` records a
   drag (t = seconds since it began, effect space) into Position keys at the comp frame rate from the
   current time; `puppet.recordOptions {speed, smoothing, useDraftDeformation, showMesh}`.
