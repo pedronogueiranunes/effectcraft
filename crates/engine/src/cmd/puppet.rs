@@ -665,18 +665,23 @@ fn info(s: &mut Session, p: &Value) -> Result<Value> {
     let Some(fx) = find_puppet(s, cid, lid) else { return Ok(json!({"meshes": []})) };
     let t = snapped(s, cid, p)?;
     let (buf, params) = puppet_eval(s, cid, lid, fx, t).ok_or_else(|| bad("puppet.info", "the layer has no pixels"))?;
+    let compact = super::b_p(p, "compact").unwrap_or(false);
     let meshes: Vec<Value> = puppet::overlay(&buf, &params)
         .into_iter()
         .map(|(uid, mesh, def, pins)| {
-            json!({
+            let mut info = json!({
                 "mesh": uid,
                 "triangles": mesh.tris.len(),
                 "vertices": mesh.verts.len(),
-                "outline": mesh.outline,
-                "deformed": def,
-                "tris": mesh.tris,
                 "pins": pins.iter().map(|pn| json!({"pin": pn.uid, "kind": pn.kind.name(), "rest": pn.rest, "position": pn.position})).collect::<Vec<_>>(),
-            })
+            });
+            // Keep the full overlay reply by default; agents can omit its large geometry arrays.
+            if !compact {
+                info["outline"] = json!(mesh.outline);
+                info["deformed"] = json!(def);
+                info["tris"] = json!(mesh.tris);
+            }
+            info
         })
         .collect();
     Ok(json!({"effect": fx, "meshes": meshes}))
@@ -722,7 +727,12 @@ pub fn specs() -> Vec<CommandSpec> {
             super::always,
             mesh_opts
         ),
-        crate::query!("puppet.info", "Puppet Mesh Info", "{layer?, time? | frame?}", info),
+        crate::query!(
+            "puppet.info",
+            "Puppet Mesh Info",
+            "{layer?, time? | frame?, compact?: bool (false: omit geometry arrays; keep mesh counts and pins)}",
+            info
+        ),
         cmd!(
             "puppet.recordPin",
             "Record Puppet Pin",

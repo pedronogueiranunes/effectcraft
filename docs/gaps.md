@@ -10,6 +10,10 @@ the evidence listed, not measurements. Hours are Opus 5.5 agent wall-clock hours
 [target-app-parity.md](target-app-parity.md#calibration-of-the-hours). Update this file when the
 evidence changes.
 
+Puppet query verbosity (#3747): `puppet.info` offers opt-in compact summaries that retain
+mesh IDs, counts and pins while omitting geometry arrays. The default full reply and rig
+behavior are unchanged; this does not change the parity estimates.
+
 ## Two different questions
 
 **Feature breadth ≈ 91%** answers *does each After Effects feature exist?* Every one of After

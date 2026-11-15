@@ -756,6 +756,12 @@ in the Plug-in Library: [publishing-plugins.md](publishing-plugins.md).
 * `edit.history.list` lists every undo state as a tree (undoing then editing keeps the undone
   states as a branch); `edit.history.goto {"index": n}` (or `id`, or `steps`) jumps to any of
   them. MCP: the `history` tool.
+* `puppet.info {"layer": "#1", "compact": true}` returns the effect UID and each mesh's
+  UID, vertex/triangle counts and pin summaries (`pin`, `kind`, `rest`, `position`). It omits
+  `outline`, `deformed` and `tris` arrays. Omitted or false keeps the full reply used by overlays;
+  `time` / `frame` still selects the evaluated rig. Errors are unchanged. This reduces reply
+  size, not mesh evaluation work (#3747). Use CLI `exec puppet.info --params '{"layer":"#1","compact":true}'`
+  or MCP `execute_command` with the same command and parameters.
 * `puppet.recordPin {"layer": "#1", "pin": "Puppet Pin 1", "samples": [[t, x, y]…]}` records a
   drag (t = seconds since it began, effect space) into Position keys at the comp frame rate from the
   current time; `puppet.recordOptions {speed, smoothing, useDraftDeformation, showMesh}`.

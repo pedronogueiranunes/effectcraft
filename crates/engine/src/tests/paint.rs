@@ -567,3 +567,51 @@ fn puppet_pin_recording_makes_keys_at_the_frame_rate() {
     assert_eq!(r["frames"], 9, "50 %: half the frames");
     assert!(s.execute("puppet.recordPin", json!({"layer": id, "pin": pin, "samples": []})).is_err());
 }
+
+/// Compact info keeps the same rig at the requested frame, without its large geometry arrays.
+#[test]
+fn compact_puppet_info_preserves_counts_pins_and_animation() {
+    let (mut s, id) = setup();
+    let lead = s.execute("puppet.addPin", json!({"layer": id, "position": [10, 30]})).unwrap();
+    for kind in ["advanced", "bend", "starch", "overlap"] {
+        s.execute("puppet.addPin", json!({"layer": id, "kind": kind, "position": [50, 30]})).unwrap();
+    }
+    let other = s.execute("puppet.addPin", json!({"layer": id, "position": [90, 30], "newMesh": true})).unwrap();
+    assert_ne!(lead["mesh"], other["mesh"]);
+    s.execute("puppet.movePin", json!({"layer": id, "pin": lead["pin"], "position": [10, 45], "time": 1})).unwrap();
+    let revision = s.revision;
+    let steps = s.history.undo.len();
+    for frame in [0, 30] {
+        let full = s.execute("puppet.info", json!({"layer": id, "frame": frame})).unwrap();
+        let explicit = s.execute("puppet.info", json!({"layer": id, "frame": frame, "compact": false})).unwrap();
+        assert_eq!(full, explicit, "full reply remains the default");
+        let compact = s.execute("puppet.info", json!({"layer": id, "frame": frame, "compact": true})).unwrap();
+        let mut expected = full.clone();
+        for mesh in expected["meshes"].as_array_mut().unwrap() {
+            let mesh = mesh.as_object_mut().unwrap();
+            for key in ["outline", "deformed", "tris"] {
+                assert!(mesh.remove(key).unwrap().is_array());
+            }
+        }
+        assert_eq!(compact, expected);
+        assert_eq!(compact["effect"], lead["effect"]);
+        let meshes = compact["meshes"].as_array().unwrap();
+        assert_eq!(meshes.len(), 2);
+        assert_eq!(meshes[0]["pins"].as_array().unwrap().len(), 5);
+        assert_eq!(meshes[0]["pins"][0]["position"], json!([10.0, if frame == 0 { 30.0 } else { 45.0 }]));
+        assert_eq!(meshes[0]["vertices"], full["meshes"][0]["deformed"].as_array().unwrap().len());
+        assert_eq!(meshes[0]["triangles"], full["meshes"][0]["tris"].as_array().unwrap().len());
+        assert!(compact.to_string().len() * 5 < full.to_string().len());
+    }
+    assert_eq!(s.revision, revision, "info is a query");
+    assert_eq!(s.history.undo.len(), steps);
+}
+
+#[test]
+fn compact_puppet_info_keeps_empty_replies_and_errors() {
+    let (mut s, id) = setup();
+    assert_eq!(s.execute("puppet.info", json!({"layer": id, "compact": true})).unwrap(), json!({"meshes": []}));
+    let full = s.execute("puppet.info", json!({"layer": "missing"})).unwrap_err().to_string();
+    let compact = s.execute("puppet.info", json!({"layer": "missing", "compact": true})).unwrap_err().to_string();
+    assert_eq!(compact, full);
+}

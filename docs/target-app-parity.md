@@ -145,7 +145,7 @@ Feature depth (≈ 50%) feeds the overall *ready* number with the other dimensio
 | Platforms | 65% | 30–60 | Releases for macOS, Windows x64/x86/ARM64, Linux, FreeBSD and the web (more than After Effects), but Linux and Windows users hit basic bugs | [gaps.md](gaps.md#g2-real-user-reliability-on-every-platform) |
 | Ecosystem and plug-ins | 20% | 40–80 | After Effects scripts and expressions mostly carry over; no After Effects SDK plug-ins, `.ffx` presets or `.mogrt`; our WebAssembly plug-in API has no third-party plug-ins yet | [plugins.md](plugins.md) |
 | AI features | 35% | 40–80 (overlaps Tracking) | Roto Brush (MobileSAM) and face tracking (MediaPipe) as optional downloads; Object Matte (point / box prompt, same model; viewer tool, background tracking, Freeze, disk cache) unmeasured against After Effects; the After Effects bundle ships Whisper, BERT and Marian tokenizers and a shot-cut model we have no equivalent of | [gaps.md](gaps.md) |
-| Agent control (beyond After Effects) | ahead | — | Every command is drivable over MCP, the control channel and the CLI | [agents.md](agents.md) |
+| Agent control (beyond After Effects) | ahead | — | Every command is drivable over MCP, the control channel and the CLI; compact Puppet mesh info (#3747) omits geometry arrays while retaining rig summaries | [agents.md](agents.md) |
 
 **Totals.** Summing the rows double-counts: AI overlaps Tracking, performance overlaps Preview,
 UI overlaps every area. With the overlaps removed: **≈ 850–1,500 h to full parity**, of which

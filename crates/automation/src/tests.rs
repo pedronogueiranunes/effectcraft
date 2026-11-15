@@ -764,6 +764,14 @@ fn puppet_rigging_over_mcp() {
     assert_eq!(ex(&mut s, "puppet.follow", json!({"delay": 0.25}))["pins"], json!([{"pin": tail, "delay": 0.25}]));
     let r = ex(&mut s, "paths.pointsFollowNulls", json!({"layer": id, "pins": [lead]}));
     assert_eq!(r["nulls"].as_array().unwrap().len(), 1);
+    let full = ex(&mut s, "puppet.info", json!({"layer": id}));
+    let compact = ex(&mut s, "puppet.info", json!({"layer": id, "compact": true}));
+    assert_eq!(compact["effect"], full["effect"]);
+    assert_eq!(compact["meshes"][0]["pins"], full["meshes"][0]["pins"]);
+    assert_eq!(compact["meshes"][0]["triangles"], full["meshes"][0]["triangles"]);
+    assert!(compact["meshes"][0].get("deformed").is_none());
+    let doc = call_json(&mut s, "describe_command", json!({"command": "puppet.info"}));
+    assert!(doc["schema"]["properties"]["compact"].is_object(), "{doc}");
     // The new commands are listed for agents.
     let (c, _) = call(&mut s, "list_commands", json!({"filter": "puppet."}));
     let text = c[0]["text"].as_str().unwrap();
