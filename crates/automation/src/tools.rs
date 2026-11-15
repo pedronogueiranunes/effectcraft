@@ -211,9 +211,13 @@ fn list_commands(b: &mut Backend, a: &Value) -> Result<Reply> {
     json_reply(json!(list))
 }
 
-fn execute_command(b: &mut Backend, a: &Value) -> Result<Reply> {
+fn command_args(a: &Value) -> Result<(&str, Value)> {
     let id = get(a, "command").or(get(a, "id")).and_then(Value::as_str).ok_or_else(|| Error::BadArgs("missing `command` (e.g. `comp.new`)".into()))?;
-    let params = params_of(get(a, "params"))?;
+    Ok((id, params_of(get(a, "params"))?))
+}
+
+fn execute_command(b: &mut Backend, a: &Value) -> Result<Reply> {
+    let (id, params) = command_args(a)?;
     json_reply(b.exec(id, params)?)
 }
 
@@ -1079,7 +1083,7 @@ static TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "command_batch",
-        description: "Run commands in order, returning each result or error. Stop at the first error by default; stop_on_error: false continues. Each edit has its own undo step; use batch for an atomic undo group.",
+        description: "Run commands in order, returning each result or error. Stop at the first error by default; stop_on_error: false continues. Each edit has its own undo step; use batch for an atomic undo group. Whole parameter strings such as `$1.layer` are rejected: only batch resolves result references (1-based).",
         bridge_only: false,
         schema: || {
             schema(
@@ -1104,13 +1108,50 @@ fn doc_inspect(b: &mut Backend, _: &Value) -> Result<Reply> {
     json_reply(json!({"project": project, "activeComp": comp}))
 }
 
+/// Only `batch` substitutes whole-string result references. Refuse them before executing a
+/// command_batch step so they cannot become a literal name, expression or text layer.
+fn check_command_batch_refs(value: &Value, depth: usize) -> Result<()> {
+    // Bound the walk independently of the transport's JSON parser, including in-process calls.
+    if depth > 64 {
+        return Err(Error::BadArgs("command_batch parameter nesting exceeds 64 levels".into()));
+    }
+    match value {
+        Value::String(s) => {
+            let mut parts = s.strip_prefix('$').unwrap_or("").split('.');
+            let reference = parts.next().is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                && parts.all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
+            if reference {
+                return Err(Error::BadArgs(format!(
+                    "command_batch does not resolve `{s}`; only `batch` resolves result references (1-based: `$1` is the first step)"
+                )));
+            }
+        }
+        Value::Array(a) => {
+            for v in a {
+                check_command_batch_refs(v, depth + 1)?;
+            }
+        }
+        Value::Object(o) => {
+            for v in o.values() {
+                check_command_batch_refs(v, depth + 1)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn command_batch(b: &mut Backend, a: &Value) -> Result<Reply> {
     let steps = need(a, "steps")?.as_array().ok_or_else(|| Error::BadArgs("steps must be an array".into()))?;
     let stop = get(a, "stop_on_error").and_then(Value::as_bool).unwrap_or(true);
     let mut results = Vec::new();
     let (mut completed, mut failed) = (0, 0);
     for step in steps {
-        match execute_command(b, step) {
+        let run = command_args(step).and_then(|(id, params)| {
+            check_command_batch_refs(&params, 0)?;
+            json_reply(b.exec(id, params)?)
+        });
+        match run {
             Ok(Reply::Json(result)) => {
                 completed += 1;
                 results.push(json!({"ok": true, "result": result}));

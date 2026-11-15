@@ -127,7 +127,7 @@ See [MCP conventions](mcp.md) for core tools, resources, strict arguments, and r
 | *(bridge)* `screenshot {panel?, id?, max_side?, path?}`, `ui_inspect`, `ui_elements {prefix?}`, `ui_click`, `ui_drag`, `ui_key`, `ui_type`, `ui_set`, `control {method, params}` | Look at and operate the live window. |
 | `command_list` | List commands (same arguments as `list_commands`). |
 | `command_run {id, params?}` | Run a command. |
-| `command_batch {steps, stop_on_error?}` | Run commands in order with per-step results; each edit has its own undo step. |
+| `command_batch {steps, stop_on_error?}` | Run commands in order with per-step results; each edit has its own undo step. Result-reference strings such as `$1.layer` are rejected: use `batch` for 1-based references. |
 | `doc_inspect` | Project overview and active composition. |
 | `render_preview` | Render a PNG without writing a file (`comp`, `time`, `max_side`, `transparent`), or a contact sheet of several times (`times`, `columns`, `labels`, as `render_frame`). |
 

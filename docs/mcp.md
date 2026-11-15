@@ -31,7 +31,14 @@ The server provides the same core conventions as FilmCraft #28:
 | `render_preview` | `comp?`, `time?` or `times?`, `columns?`, `labels?`, `max_side?`, `transparent?` | PNG and frame information; with `times`, one contact-sheet PNG and its layout (`columns`, `rows`, `cellWidth`, `cellHeight`, `width`, `height`) |
 
 `command_batch` stops at the first error by default; false continues. Each edit has its
-own undo step. The existing `batch` tool retains its atomic undo grouping and result references.
+own undo step. Whole parameter strings matching `$N` or `$N.key.0` are rejected before
+that step runs, with an error directing the caller to `batch`: only `batch` resolves result
+references (1-based: `$1` is the first step). This check also covers nested parameter values
+and JSON-stringified params. Other dollar-sign text is literal. To send a literal string
+that matches reference syntax, use `command_run` or `execute_command`. The reference check bounds
+parameter nesting to 64 levels; deeper inputs return a per-step error. Earlier successful
+steps stay applied, and `stop_on_error: false` still continues after a rejected step (#3752).
+The existing `batch` tool retains its atomic undo grouping and result references.
 Existing tools, including `list_commands`, `execute_command`, and `batch`, remain listed
 because existing workflows use them; there are no hidden aliases. See [agents.md](agents.md)
 for the full catalog. Each tool has a title and read-only, destructive, idempotent and

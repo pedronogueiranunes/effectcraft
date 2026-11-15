@@ -10,6 +10,11 @@ the evidence listed, not measurements. Hours are Opus 5.5 agent wall-clock hours
 [target-app-parity.md](target-app-parity.md#calibration-of-the-hours). Update this file when the
 evidence changes.
 
+MCP batch diagnostics (#3752): `command_batch` rejects result-reference strings before
+the affected step runs, pointing callers to the reference-aware `batch` tool. Independent
+undo steps and stop/continue behavior remain unchanged. This changes error guidance only,
+not the parity estimates.
+
 ## Two different questions
 
 **Feature breadth ≈ 91%** answers *does each After Effects feature exist?* Every one of After

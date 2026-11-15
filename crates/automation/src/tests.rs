@@ -2112,3 +2112,86 @@ fn bridged_contact_sheet_keeps_the_times_asked_for() {
     let info = call_json(&mut s, "render_frame", json!({"times": [1.5, 0.25, 3], "inline": false}));
     assert_eq!(info["times"], json!([1.5, 0.25, 3.0]));
 }
+
+#[test]
+fn command_batch_reference_errors_stop_or_continue_without_running_the_step() {
+    for stop in [true, false] {
+        let mut s = server();
+        call_json(&mut s, "execute_command", json!({"command": "comp.new"}));
+        let before = call_json(&mut s, "get_project", json!({}))["undo"].as_array().unwrap().len();
+        let (content, error) = call(
+            &mut s,
+            "command_batch",
+            json!({"stop_on_error": stop, "steps": [
+                {"id": "layer.newNull", "params": {"name": "Before"}},
+                {"id": "layer.newText", "params": {"name": "Must not exist", "text": "$1.layer"}},
+                {"id": "layer.newNull", "params": {"name": "After"}}
+            ]}),
+        );
+        assert!(error, "{content:?}");
+        let result: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(result["failed"], 1);
+        assert_eq!(result["completed"], if stop { 1 } else { 2 });
+        let message = result["results"][1]["error"].as_str().unwrap();
+        assert!(message.contains("$1.layer") && message.contains("only `batch`") && message.contains("1-based"), "{message}");
+        let comp = call_json(&mut s, "get_comp", json!({}));
+        let layers = comp["layers"].as_array().unwrap();
+        assert_eq!(layers.len(), if stop { 1 } else { 2 });
+        assert!(layers.iter().all(|l| l["name"] != "Must not exist"));
+        let after = call_json(&mut s, "get_project", json!({}))["undo"].as_array().unwrap().len();
+        assert_eq!(after - before, if stop { 1 } else { 2 }, "each successful edit keeps its own undo step");
+    }
+}
+
+#[test]
+fn command_batch_reference_errors_find_nested_and_stringified_params() {
+    for params in [
+        json!({"text": "$0.layer"}),
+        json!({"nested": [{"value": "$12.layers.0.id"}]}),
+        json!({"text": "$999999999999999999999999999999999999999999"}),
+        json!(r#"{"text":"$1.layer"}"#),
+    ] {
+        let mut s = server();
+        call_json(&mut s, "execute_command", json!({"command": "comp.new"}));
+        let (content, error) = call(&mut s, "command_batch", json!({"steps": [{"id": "layer.newText", "params": params}]}));
+        assert!(error);
+        let result: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+        let message = result["results"][0]["error"].as_str().unwrap();
+        assert!(message.contains("only `batch`"), "{message}");
+        assert!(call_json(&mut s, "get_comp", json!({}))["layers"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn command_batch_keeps_literal_dollar_text_and_batch_still_resolves_references() {
+    let mut s = server();
+    call_json(&mut s, "execute_command", json!({"command": "comp.new"}));
+    for text in ["$HOME", "price $1", "$1.layer suffix", "$1.", "$1/path", "$$1", "${1.layer}"] {
+        let result = call_json(&mut s, "command_batch", json!({"steps": [{"id": "layer.newText", "params": {"text": text, "name": text}}]}));
+        assert_eq!(result["completed"], 1);
+    }
+    call_json(
+        &mut s,
+        "batch",
+        json!({"steps": [
+            {"command": "layer.newNull", "params": {"name": "Referenced"}},
+            {"command": "prop.set", "params": {"layer": "$1.layer", "path": "transform/opacity", "value": 25}}
+        ]}),
+    );
+    assert_eq!(call_json(&mut s, "get_property", json!({"layer": "Referenced", "path": "transform/opacity"}))["value"], 25.0);
+}
+
+#[test]
+fn command_batch_reference_errors_bound_nested_params() {
+    let mut s = server();
+    call_json(&mut s, "execute_command", json!({"command": "comp.new"}));
+    let mut params = json!("$1.layer");
+    for _ in 0..70 {
+        params = json!([params]);
+    }
+    let (content, error) = call(&mut s, "command_batch", json!({"steps": [{"id": "layer.newText", "params": {"nested": params}}]}));
+    assert!(error);
+    let result: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+    assert!(result["results"][0]["error"].as_str().unwrap().contains("nesting"), "{result}");
+    assert!(call_json(&mut s, "get_comp", json!({}))["layers"].as_array().unwrap().is_empty());
+}
