@@ -113,8 +113,8 @@ See [MCP conventions](mcp.md) for core tools, resources, strict arguments, and r
 | `get_project` / `get_comp {comp?}` | Project items, comp settings and layers. |
 | `get_layer {layer, comp?, time?, depth?, flat?}` | A layer's property tree (`depth` limits how many group levels expand). Every node has a `path`. |
 | `get_property {layer, path, comp?, time?}` | A leaf property's value at a time, keyframes and expression; a popup (enum) property adds `options` (`[{value, label}]`, zero-based values, also in `get_layer`). Group paths (for example `geometryOptions`) contain children: inspect them with `get_layer`, then query a leaf such as `geometryOptions/extrusionDepth`. |
-| `set_property {layer, path, value?, time?, timeBase?, expression?, comp?}` | Sets a static value. With `time` it sets a keyframe (`timeBase: "comp"` for comp seconds); with `expression` it sets an expression. |
-| `add_keyframe {layer, path, time+value \| keys:[...], timeBase?, interpolation?, comp?}` | Adds keys (layer seconds, or comp seconds with `timeBase: "comp"`), then optionally applies linear/bezier/hold/easyEase. |
+| `set_property {layer, path, value?, time?, timeBase?, expression?, comp?, compact?}` | Sets a static value. With `time` it sets a keyframe (`timeBase: "comp"` for comp seconds); with `expression` it sets an expression. |
+| `add_keyframe {layer, path, time+value \| keys:[...], timeBase?, interpolation?, comp?, compact?}` | Adds keys (layer seconds, or comp seconds with `timeBase: "comp"`), then optionally applies linear/bezier/hold/easyEase. |
 | `list_effects {filter?, compact?}` | Effect ids, names, categories, GPU / 32-bpc support and parameters; `compact` lists only ids, names and categories. |
 | `list_fonts {query?, variable?, rescan?}` | Font families text layers can use, bundled and installed, with their styles, origin, whether each is a variable font and own-language name; `variable` lists only variable fonts; `rescan` picks up fonts installed since launch. |
 | `add_effect {layer, effect, values?, comp?}` | Apply an effect and set its parameters in one call and one undo step (a failing value leaves nothing applied); returns the instance path (`effects/#n`) and its parameter paths. |
@@ -137,6 +137,13 @@ an all-digit string that matches no name is taken as the id. Property paths come
 example `transform/position`, `transform/opacity`, `effects/#1/blurriness` or `@57` (by uid). Times
 are in seconds. Keyframe times are layer time, which equals comp time unless the layer is offset or
 stretched.
+
+`set_property` and `add_keyframe` return the full property by default. Pass `"compact": true`
+to receive only `{layer, uid, path, keys}`, where `layer` and `uid` are resolved numeric IDs,
+`path` is the supplied property address, and `keys` is the total keyframe count. An
+`expressionError` is retained when present; command failures still return errors. Use
+`get_property` when you need values, keyframes or expression details. This option reduces the
+reply payload, not the internal property lookup (#3702).
 
 Use MCP `execute_command` for engine commands `prop.set`, `prop.addKey`, `keys.set` and
 `keys.select` with `timeBase: "layer" | "comp"`; omitted means `layer`. The convenience tools
@@ -300,7 +307,7 @@ build real projects through these interfaces; they are worked examples of everyt
   `contents/group/contents/gfill`), ready for `set_property`. `@uid` works as a whole path.
 * **One call, one undo step**: `batch {"steps":[{"command":"layer.newShape","params":{"kind":"ellipse","name":"Ring"}},{"command":"layer.addShapeItem","params":{"layer":"$1.layer","kind":"trim"}},{"command":"prop.addKey","params":{"layer":"$1.layer","path":"transform/opacity","time":0,"value":0}}]}`
   (a string param that is exactly `"$N"` or `"$N.key"` is replaced; `$2.path` is the trim's path).
-* **Expressions**: `set_property`/`get_property` replies carry `evaluated` (what renders) next to
+* **Expressions**: full `set_property`/`get_property` replies carry `evaluated` (what renders) next to
   `value` (the keyframed value) and `expressionError` when the expression fails. An expression with
   a syntax error is kept but disabled, so it renders `value` and reports the syntax error.
 * **Keyframes like a person**: `keys.select {keys, toggle: true}` (Shift+click), `keys.selectEqual`

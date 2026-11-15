@@ -10,6 +10,10 @@ the evidence listed, not measurements. Hours are Opus 5.5 agent wall-clock hours
 [target-app-parity.md](target-app-parity.md#calibration-of-the-hours). Update this file when the
 evidence changes.
 
+MCP reply size (#3702): `set_property` and `add_keyframe` now offer opt-in compact
+summaries with property IDs and total key counts, retaining expression errors. Full replies
+remain the default. This addresses reply verbosity only; it does not change the parity estimates.
+
 ## Two different questions
 
 **Feature breadth ≈ 91%** answers *does each After Effects feature exist?* Every one of After

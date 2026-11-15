@@ -338,6 +338,21 @@ fn get_property(b: &mut Backend, a: &Value) -> Result<Reply> {
     json_reply(b.exec("prop.get", p)?)
 }
 
+/// Compact only the reply: editing, interpolation and expression diagnostics stay unchanged.
+fn property_edit_reply(info: Value, args: &Value) -> Result<Reply> {
+    if get(args, "compact").and_then(Value::as_bool) != Some(true) {
+        return json_reply(info);
+    }
+    let layer = info.get("layer").and_then(Value::as_u64).ok_or_else(|| Error::Other("property reply missing numeric layer".into()))?;
+    let uid = info.get("uid").and_then(Value::as_u64).ok_or_else(|| Error::Other("property reply missing numeric uid".into()))?;
+    let keys = info.get("keys").and_then(Value::as_array).ok_or_else(|| Error::Other("property reply missing keyframe array".into()))?.len();
+    let mut summary = json!({"layer": layer, "uid": uid, "path": need(args, "path")?, "keys": keys});
+    if let Some(error) = info.get("expressionError") {
+        summary["expressionError"] = error.clone();
+    }
+    json_reply(summary)
+}
+
 fn set_property(b: &mut Backend, a: &Value) -> Result<Reply> {
     let (layer, path, comp, time) = (need(a, "layer")?, need(a, "path")?, get(a, "comp"), get(a, "time"));
     let (value, expr) = (get(a, "value"), get(a, "expression"));
@@ -366,7 +381,7 @@ fn set_property(b: &mut Backend, a: &Value) -> Result<Reply> {
         p["expression"] = e.clone();
         b.exec("prop.setExpression", p)?;
     }
-    json_reply(b.exec("prop.get", obj(&[("layer", Some(layer)), ("path", Some(path)), ("comp", comp), ("time", time)]))?)
+    property_edit_reply(b.exec("prop.get", obj(&[("layer", Some(layer)), ("path", Some(path)), ("comp", comp), ("time", time)]))?, a)
 }
 
 fn add_keyframe(b: &mut Backend, a: &Value) -> Result<Reply> {
@@ -410,9 +425,9 @@ fn add_keyframe(b: &mut Backend, a: &Value) -> Result<Reply> {
             i @ ("linear" | "bezier" | "hold") => b.exec("keys.interpolation", json!({"interpolation": i}))?,
             other => return Err(Error::BadArgs(format!("unknown interpolation `{other}` (linear, bezier, hold, easyEase, easyEaseIn, easyEaseOut)"))),
         };
-        return json_reply(b.exec("prop.get", obj(&base))?);
+        return property_edit_reply(b.exec("prop.get", obj(&base))?, a);
     }
-    json_reply(info)
+    property_edit_reply(info, a)
 }
 
 fn render_frame(b: &mut Backend, a: &Value) -> Result<Reply> {
@@ -749,7 +764,7 @@ static TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "set_property",
-        description: "Set a property. Without `time`: sets the static value (or a key at the current time if already animated). With `time`: adds/replaces a keyframe there, turning the stopwatch on. `expression` sets an After Effects-style JS expression (\"\" removes it). Returns the property as get_property does. Examples: {\"layer\":3,\"path\":\"transform/opacity\",\"value\":50}; {\"layer\":\"Title\",\"path\":\"transform/position\",\"value\":[200,540],\"time\":0}; {\"layer\":3,\"path\":\"transform/rotation\",\"expression\":\"time*90\"}.",
+        description: "Set a property. Without `time`: sets the static value (or a key at the current time if already animated). With `time`: adds/replaces a keyframe there, turning the stopwatch on. `expression` sets an After Effects-style JS expression (\"\" removes it). Returns the property as get_property does by default; `compact: true` returns {layer, uid, path, keys} with a numeric total key count and preserves expressionError. Examples: {\"layer\":3,\"path\":\"transform/opacity\",\"value\":50}; {\"layer\":\"Title\",\"path\":\"transform/position\",\"value\":[200,540],\"time\":0}; {\"layer\":3,\"path\":\"transform/rotation\",\"expression\":\"time*90\"}.",
         bridge_only: false,
         schema: || {
             schema(
@@ -757,7 +772,8 @@ static TOOLS: &[ToolDef] = &[
                     "layer": layer_s(), "path": path_s(), "value": value_s(), "comp": comp_s(),
                     "time": {"type": "number", "description": "Keyframe time in seconds (layer time; equals comp time unless the layer is offset/stretched)."},
                     "timeBase": {"type": "string", "enum": ["layer", "comp"], "description": "What `time` counts: layer time (the default) or comp time, as the Timeline shows it."},
-                    "expression": {"type": "string", "description": "Expression text; empty string removes the expression."}
+                    "expression": {"type": "string", "description": "Expression text; empty string removes the expression."},
+                    "compact": {"type": "boolean", "default": false, "description": "Return resolved layer/uid, supplied path and total key count, retaining expressionError; omit values and keyframes."}
                 }),
                 &["layer", "path"],
             )
@@ -766,7 +782,7 @@ static TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "add_keyframe",
-        description: "Add keyframes to a property (turns the stopwatch on): one with `time` (+ optional `value`, default the current value) or many with `keys: [{time, value}]`, then optionally set their `interpolation`: linear, bezier, hold, easyEase, easyEaseIn, easyEaseOut. Example: {\"layer\":1,\"path\":\"transform/position\",\"keys\":[{\"time\":0,\"value\":[0,540]},{\"time\":2,\"value\":[1920,540]}],\"interpolation\":\"easyEase\"}.",
+        description: "Add keyframes to a property (turns the stopwatch on): one with `time` (+ optional `value`, default the current value) or many with `keys: [{time, value}]`, then optionally set their `interpolation`: linear, bezier, hold, easyEase, easyEaseIn, easyEaseOut. Returns the full property by default; `compact: true` returns {layer, uid, path, keys} with a numeric total key count and preserves expressionError. Example: {\"layer\":1,\"path\":\"transform/position\",\"keys\":[{\"time\":0,\"value\":[0,540]},{\"time\":2,\"value\":[1920,540]}],\"interpolation\":\"easyEase\"}.",
         bridge_only: false,
         schema: || {
             schema(
@@ -776,7 +792,8 @@ static TOOLS: &[ToolDef] = &[
                     "timeBase": {"type": "string", "enum": ["layer", "comp"], "description": "What `time` counts: layer time (the default) or comp time, as the Timeline shows it."},
                     "value": value_s(),
                     "keys": {"type": "array", "items": {"type": "object", "properties": {"time": {"type": "number"}, "value": value_s()}, "required": ["time"]}, "description": "Several keys at once."},
-                    "interpolation": {"type": "string", "enum": ["linear", "bezier", "hold", "easyEase", "easyEaseIn", "easyEaseOut"]}
+                    "interpolation": {"type": "string", "enum": ["linear", "bezier", "hold", "easyEase", "easyEaseIn", "easyEaseOut"]},
+                    "compact": {"type": "boolean", "default": false, "description": "Return resolved layer/uid, supplied path and total key count, retaining expressionError; omit values and keyframes."}
                 }),
                 &["layer", "path"],
             )

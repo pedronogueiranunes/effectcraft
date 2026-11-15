@@ -2112,3 +2112,108 @@ fn bridged_contact_sheet_keeps_the_times_asked_for() {
     let info = call_json(&mut s, "render_frame", json!({"times": [1.5, 0.25, 3], "inline": false}));
     assert_eq!(info["times"], json!([1.5, 0.25, 3.0]));
 }
+
+fn compact_property_fixture(host: bool) -> (McpServer, Value) {
+    let mut s = if host { McpServer::new(Backend::headless(effectcraft_host::session())) } else { server() };
+    call_json(&mut s, "execute_command", json!({"command":"comp.new","params":{"width":64,"height":64,"frameRate":30,"duration":3}}));
+    let layer = call_json(&mut s, "execute_command", json!({"command":"layer.newSolid","params":{"name":"S","width":64,"height":64}}))["layer"].clone();
+    (s, layer)
+}
+
+#[test]
+fn compact_property_replies_are_opt_in_and_count_keys_after_interpolation() {
+    let (mut s, layer) = compact_property_fixture(false);
+    let tools = rpc(&mut s, 1, "tools/list", json!({}));
+    for name in ["set_property", "add_keyframe"] {
+        let tool = tools["tools"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap();
+        assert_eq!(tool["inputSchema"]["properties"]["compact"]["type"], "boolean");
+    }
+    let path = "transform/opacity";
+    let full = call_json(&mut s, "set_property", json!({"layer":layer,"path":path,"value":50}));
+    let explicit_full = call_json(&mut s, "set_property", json!({"layer":layer,"path":path,"value":50,"compact":false}));
+    assert_eq!(explicit_full, full);
+    assert_eq!(full["value"], 50.0);
+    assert!(full["keys"].is_array());
+    let brief = call_json(&mut s, "set_property", json!({"layer":"S","path":path,"value":50,"compact":true}));
+    assert_eq!(brief, json!({"layer":layer,"uid":full["uid"],"path":path,"keys":0}));
+    let brief = call_json(&mut s, "add_keyframe", json!({"layer":layer,"path":path,"keys":[{"time":0,"value":10},{"time":1,"value":90}],"compact":true}));
+    assert_eq!(brief["keys"], 2);
+    assert_eq!(brief["uid"], full["uid"]);
+    assert!(brief.get("value").is_none());
+    let brief = call_json(&mut s, "add_keyframe", json!({"layer":layer,"path":path,"time":2,"value":60,"interpolation":"hold","compact":true}));
+    assert_eq!(brief["keys"], 3);
+    assert_eq!(call_json(&mut s, "get_property", json!({"layer":layer,"path":path}))["keys"][2]["out"], "Hold");
+    let expanded = call_json(&mut s, "add_keyframe", json!({"layer":layer,"path":path,"time":2,"value":60,"compact":false}));
+    assert_eq!(expanded["keys"].as_array().unwrap().len(), 3);
+    let brief = call_json(&mut s, "set_property", json!({"layer":layer,"path":path,"time":2,"value":75,"compact":true}));
+    assert_eq!(brief["keys"], 3, "replacing a key does not increase the count");
+    assert_eq!(call_json(&mut s, "get_property", json!({"layer":layer,"path":path,"time":2}))["value"], 75.0);
+}
+
+#[test]
+fn compact_property_replies_omit_large_path_and_keyframe_payloads() {
+    let (mut s, layer) = compact_property_fixture(false);
+    let vertices: Vec<_> = (0..128)
+        .map(|i| {
+            let a = f64::from(i) * std::f64::consts::TAU / 128.0;
+            [32.0 + 24.0 * a.cos(), 32.0 + 24.0 * a.sin()]
+        })
+        .collect();
+    call_json(&mut s, "execute_command", json!({"command":"mask.new","params":{"layer":layer,"vertices":vertices,"closed":true}}));
+    let path = "masks/#1/path";
+    let original = call_json(&mut s, "get_property", json!({"layer":layer,"path":path}));
+    let value = original["value"].clone();
+    let brief = call_json(&mut s, "set_property", json!({"layer":layer,"path":path,"value":value,"compact":true}));
+    assert_eq!(brief, json!({"layer":layer,"uid":original["uid"],"path":path,"keys":0}));
+    let brief = call_json(&mut s, "add_keyframe", json!({"layer":layer,"path":path,"keys":[{"time":0,"value":value},{"time":1,"value":value}],"compact":true}));
+    assert_eq!(brief["keys"], 2);
+    assert!(brief.to_string().len() < 200, "{brief}");
+    let expanded = call_json(&mut s, "get_property", json!({"layer":layer,"path":path}));
+    assert_eq!(expanded["keys"].as_array().unwrap().len(), 2);
+    assert_eq!(expanded["keys"][0]["value"], value, "only the reply is compacted");
+    assert!(expanded.to_string().len() > brief.to_string().len() * 10);
+}
+
+#[test]
+fn compact_property_replies_preserve_expression_and_command_errors() {
+    let (mut s, layer) = compact_property_fixture(true);
+    let path = "transform/rotation";
+    for expr in ["thisIsBroken(", "nope*2"] {
+        let brief = call_json(&mut s, "set_property", json!({"layer":layer,"path":path,"expression":expr,"compact":true}));
+        let full = call_json(&mut s, "get_property", json!({"layer":layer,"path":path}));
+        assert!(brief["expressionError"].is_string(), "{brief}");
+        assert_eq!(brief["expressionError"], full["expressionError"]);
+        for interpolation in [None, Some("hold")] {
+            let mut args = json!({"layer":layer,"path":path,"time":1,"value":30,"compact":true});
+            if let Some(i) = interpolation {
+                args["interpolation"] = json!(i);
+            }
+            let keyed = call_json(&mut s, "add_keyframe", args);
+            assert_eq!(keyed["expressionError"], brief["expressionError"]);
+        }
+    }
+    for tool in ["set_property", "add_keyframe"] {
+        let bad = |compact| json!({"layer":layer,"path":"missing/property","value":1,"time":1,"compact":compact});
+        let (full, full_error) = call(&mut s, tool, bad(false));
+        let (brief, brief_error) = call(&mut s, tool, bad(true));
+        assert!(full_error && brief_error);
+        assert_eq!(brief, full, "compact mode must not hide command failures");
+    }
+}
+
+#[test]
+fn compact_property_replies_work_over_the_bridge_with_uid_paths() {
+    let port = fake_app();
+    let mut s = McpServer::new(Backend::bridge(&port.to_string()).unwrap());
+    call_json(&mut s, "execute_command", json!({"command":"comp.new","params":{"width":8,"height":8}}));
+    let layer = call_json(&mut s, "execute_command", json!({"command":"layer.newSolid","params":{"name":"S","width":8,"height":8}}))["layer"].clone();
+    let full = call_json(&mut s, "get_property", json!({"layer":layer,"path":"transform/opacity"}));
+    let path = format!("@{}", full["uid"]);
+    let summary = call_json(&mut s, "set_property", json!({"layer":"S","path":path,"value":50,"compact":true}));
+    assert_eq!(summary, json!({"layer":layer,"uid":full["uid"],"path":path,"keys":0}));
+    let summary = call_json(&mut s, "add_keyframe", json!({"layer":layer,"path":path,"time":1,"value":75,"interpolation":"hold","compact":true}));
+    assert_eq!(summary, json!({"layer":layer,"uid":full["uid"],"path":path,"keys":1}));
+    let full = call_json(&mut s, "get_property", json!({"layer":layer,"path":path,"time":1}));
+    assert_eq!(full["value"], 75.0);
+    assert_eq!(full["keys"][0]["out"], "Hold");
+}

@@ -3,6 +3,14 @@
 Run `effectcraft-cli mcp` for a headless session, or `effectcraft-cli mcp --bridge 9877`
 to use the desktop app's control channel. Existing ports are unchanged.
 
+## Compact property edit replies
+
+`set_property` and `add_keyframe` accept optional `compact: true` in both headless and
+bridge sessions. The result is `{layer, uid, path, keys}` with resolved numeric layer/property
+IDs, the supplied path and a numeric total key count. It omits values and keyframe arrays,
+but preserves `expressionError` and ordinary tool errors. Omitted or false keeps the full
+property reply. See [agent tools](agents.md) for examples and property addressing (#3702).
+
 ## Confining file access
 
 `--automation-read-root DIR` and `--automation-write-root DIR` (each repeatable, as in
