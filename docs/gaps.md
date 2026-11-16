@@ -10,6 +10,11 @@ the evidence listed, not measurements. Hours are Opus 5.5 agent wall-clock hours
 [target-app-parity.md](target-app-parity.md#calibration-of-the-hours). Update this file when the
 evidence changes.
 
+Layer Styles workflow update ([#1877](https://github.com/storytold/effectcraft/issues/1877)):
+whole Layer Styles groups can be copied and pasted between layers over commands or standard
+Copy/Paste, retaining settings and animation with one-step undo. Individual style-group copying
+is outside this slice; parity estimates are unchanged.
+
 ## Two different questions
 
 **Feature breadth ≈ 91%** answers *does each After Effects feature exist?* Every one of After

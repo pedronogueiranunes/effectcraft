@@ -19,6 +19,8 @@ fn clipboard_text(s: &effectcraft_engine::Session) -> String {
         n(st.key_clipboard.iter().map(|c| c.keys.len()).sum(), "keyframe", "keyframes")
     } else if !st.effect_clipboard.is_empty() {
         n(st.effect_clipboard.len(), "effect", "effects")
+    } else if st.style_clipboard.is_some() {
+        "EffectCraft: Layer Styles".into()
     } else if !st.contents_clipboard.is_empty() {
         n(st.contents_clipboard.len(), "shape item", "shape items")
     } else if !st.mask_clipboard.is_empty() {

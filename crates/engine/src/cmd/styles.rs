@@ -219,8 +219,113 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
     )
 }
 
+/// Only whole Layer Styles groups participate; leaf and key selections keep their priority.
+pub(crate) fn selected_style_layers(s: &Session) -> Vec<LayerId> {
+    s.active_comp()
+        .map(|c| c.layers.iter().filter(|l| l.layer_styles().is_some_and(|g| s.state.selected_props.contains(&(l.id, g.uid)))).map(|l| l.id).collect())
+        .unwrap_or_default()
+}
+
+fn copy(s: &mut Session, p: &Value) -> Result<Value> {
+    use super::effect::{effect_time, effect_time_error, retime_effect};
+    const CMD: &str = "layer.style.copy";
+    let (cid, lid) = layer_p(s, p, CMD)?;
+    let l = s.project.comp(cid).and_then(|c| c.layer(lid)).ok_or(EngineError::NoComp)?;
+    let mut group = l.layer_styles().cloned().ok_or_else(|| bad(CMD, "the layer has no layer styles"))?;
+    // Global Light belongs to the destination comp, so it neither travels nor sets the key origin.
+    if let Some(bo) = group.sub_mut(st::BLENDING) {
+        for name in ["globalLightAngle", "globalLightAltitude"] {
+            if let Some(pr) = bo.get_mut(name) {
+                pr.keys.clear();
+                pr.expr = None;
+            }
+        }
+    }
+    let mut first = None;
+    retime_effect(&mut group, l.stretch / 100.0, CMD, |t| {
+        let t = effect_time(l, t, true, CMD)?;
+        first = Some(first.map_or(t, |old: effectcraft_time::Tick| old.min(t)));
+        Ok(t)
+    })?;
+    if let Some(first) = first {
+        retime_effect(&mut group, 1.0, CMD, |t| Ok(effectcraft_time::Tick(t.0.checked_sub(first.0).ok_or_else(|| effect_time_error(CMD))?)))?;
+    }
+    super::edit::clear_clipboards(s);
+    s.state.style_clipboard = Some(group);
+    Ok(json!({"layer": lid.0}))
+}
+
+fn paste(s: &mut Session, p: &Value) -> Result<Value> {
+    use super::effect::{effect_time, effect_time_error, retime_effect};
+    const CMD: &str = "layer.style.paste";
+    let clip = s.state.style_clipboard.clone().ok_or_else(|| bad(CMD, "no Layer Styles group on the clipboard"))?;
+    let (cid, ids) = style_layers(s, p)?;
+    let ids = super::unlocked(s, cid, ids, CMD)?;
+    if ids.is_empty() {
+        return Err(bad(CMD, "select an unlocked layer that accepts layer styles"));
+    }
+    let at = s.time_of(cid);
+    s.edit("Paste Layer Styles", None, |proj, state| {
+        let gl = proj.comp(cid).ok_or(EngineError::NoComp)?.global_light.clone();
+        let mut next = proj.next_id;
+        let mut selected = vec![];
+        for lid in &ids {
+            let layer = layer_mut(proj, cid, *lid)?;
+            let mut group = clip.clone();
+            retime_effect(&mut group, 100.0 / layer.stretch, CMD, |offset| {
+                let t = effectcraft_time::Tick(at.0.checked_add(offset.0).ok_or_else(|| effect_time_error(CMD))?);
+                effect_time(layer, t, false, CMD)
+            })?;
+            if let Some(bo) = group.sub_mut(st::BLENDING) {
+                for (name, src) in [("globalLightAngle", &gl.angle), ("globalLightAltitude", &gl.altitude)] {
+                    if let Some(pr) = bo.get_mut(name) {
+                        pr.value = src.value.clone();
+                        pr.keys = src.keys.clone();
+                        pr.expr = src.expr.clone();
+                    }
+                }
+            }
+            // reassign_uids increments once per node; reserve the entire subtree before calling it.
+            let mut count = 1u64;
+            let mut pending = vec![&group];
+            while let Some(g) = pending.pop() {
+                count = count.checked_add(g.children.len() as u64).ok_or_else(|| bad(CMD, "too many style properties"))?;
+                pending.extend(g.groups());
+            }
+            if next.checked_add(count).and_then(|n| n.checked_add(1)).is_none() {
+                return Err(bad(CMD, "the project has no available property ids"));
+            }
+            group.reassign_uids(&mut next);
+            selected.push((*lid, group.uid));
+            layer.props.children.retain(|n| n.match_id() != GROUP);
+            layer.props.children.push(group.into());
+        }
+        proj.next_id = next.checked_add(1).ok_or_else(|| bad(CMD, "the project has no available property ids"))?;
+        if state.active_comp == Some(cid) {
+            state.selected_props = selected;
+            state.selected_keys.clear();
+        } else {
+            let selection = state.comp_selections.entry(cid).or_default();
+            selection.props = selected;
+            selection.keys.clear();
+        }
+        Ok(())
+    })?;
+    Ok(json!({"layers": ids}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        cmd!("layer.style.copy", "Copy Layer Styles", [], None, "{layer?, comp?} — copies the whole Layer Styles group", has_layers, copy),
+        cmd!(
+            "layer.style.paste",
+            "Paste Layer Styles",
+            [],
+            None,
+            "{layers?, comp?} — replaces styles on unlocked layers; keys align to the playhead; keeps destination Global Light",
+            has_layers,
+            paste
+        ),
         cmd!("layer.style.convertToEditable", "Convert to Editable Styles", ["Layer", "Layer Styles"], None, "{layers?}", no_psd_styles, convert),
         cmd!("layer.style.showAll", "Show All", ["Layer", "Layer Styles"], None, "{layers?}", has_layers, show_all),
         cmd!("layer.style.removeAll", "Remove All", ["Layer", "Layer Styles"], None, "{layers?}", has_layers, remove_all),

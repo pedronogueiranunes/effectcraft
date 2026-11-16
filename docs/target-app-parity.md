@@ -11,6 +11,11 @@ left. [gaps.md](gaps.md) lists every known shortfall one at a time; the
 [localization-parity.md](localization-parity.md), and the live measurements in
 [fidelity/](fidelity/README.md).
 
+Layer Styles workflow update ([#1877](https://github.com/storytold/effectcraft/issues/1877)):
+whole Layer Styles groups can be copied and pasted between layers over commands or standard
+Copy/Paste, retaining settings and animation with one-step undo. Individual style-group copying
+is outside this slice; parity estimates are unchanged.
+
 ## Headline
 
 | Number | Value | Kind |

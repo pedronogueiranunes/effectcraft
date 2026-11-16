@@ -94,6 +94,9 @@ pub struct EditorState {
     /// Paste adds them to the selected layers at the destination comp's CTI.
     #[serde(skip)]
     pub effect_clipboard: Vec<effectcraft_project::PropGroup>,
+    /// Whole Layer Styles group, with comp-time key offsets. Never saved with the project.
+    #[serde(skip)]
+    pub style_clipboard: Option<effectcraft_project::PropGroup>,
     /// Copied shape items (Edit ▸ Copy with groups, paths, paints or path operations selected in
     /// a shape layer's Contents); Paste adds them to the selected shape layers.
     #[serde(skip)]

@@ -81,3 +81,43 @@ fn shift_click_adds_puppet_pins_and_delete_removes_them_together() {
     h.state_mut().session.undo();
     assert_eq!(pin_count(&h, layer), 3, "one Undo restores both pins");
 }
+
+#[test]
+fn layer_style_clipboard_events_copy_the_group_not_the_layer() {
+    let mut s = Session::default();
+    s.execute("comp.new", json!({"width": 320, "height": 180})).unwrap();
+    let a = s.execute("layer.newSolid", json!({"name": "Source", "width": 40, "height": 40})).unwrap()["layer"].as_u64().unwrap();
+    let b = s.execute("layer.newSolid", json!({"name": "Target", "width": 40, "height": 40})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("layer.style.stroke", json!({"layers": [a]})).unwrap();
+    let uid = s.active_comp().unwrap().layer(LayerId(a)).unwrap().layer_styles().unwrap().uid;
+    let mut app = EffectcraftApp::new(s);
+    app.ui.timeline.open_layers.insert(a);
+    let mut h = Harness::builder().with_size(vec2(1600.0, 1100.0)).build_eframe(|_| app);
+    h.run_steps(4);
+    click(&mut h, uid, Modifiers::NONE);
+    h.event(egui::Event::Copy);
+    h.step();
+    let text = h
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .expect("Copy fills the native clipboard");
+    assert_eq!(text, "EffectCraft: Layer Styles");
+    h.state_mut().session.execute("layer.select", json!({"layers": [b]})).unwrap();
+    h.run_steps(2);
+    let before = h.state().session.project.clone();
+    h.event(egui::Event::Paste(text));
+    h.run_steps(3);
+    let comp = h.state().session.active_comp().unwrap();
+    assert_eq!(comp.layers.len(), 2);
+    let pasted = comp.layer(LayerId(b)).unwrap().layer_styles().unwrap();
+    assert_ne!(pasted.uid, uid);
+    assert!(pasted.sub("stroke").is_some());
+    h.state_mut().session.undo();
+    assert_eq!(h.state().session.project, before);
+}

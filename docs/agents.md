@@ -254,6 +254,16 @@ build real projects through these interfaces; they are worked examples of everyt
 * **Several footage items at once**: `file.newCompFromSelection {single, dimensionsFrom, duration,
   sequence, overlap, overlapDuration, transition, addToRenderQueue}` is one undo step (select the
   items first: `project.select`).
+* **Copy Layer Styles**: `layer.style.copy {layer?}` copies the layer's whole Layer Styles
+  group; `layer.style.paste {layers?}` replaces the styles on each unlocked layer that accepts
+  them, in one undo step. Standard Copy/Paste also works with a whole Layer Styles group selected
+  in the Timeline; Cut removes that group without deleting the layer. Select one source group
+  at a time. Settings, enabled states, expressions and
+  keyframes travel in independent copies with fresh property IDs. The earliest copied style key
+  lands at the destination composition's playhead; other keys keep their comp-time offsets,
+  including on stretched or reversed layers. The destination comp keeps its shared Global Light.
+  Leaf-property/key copying keeps its existing behavior; individual style-group copying is not
+  part of this command. The clipboard is session-only.
 * **Where an item is used**: `project.usedIn {item?}` → `{item, count, comps: [{id, name, layers}]}`
   counts the layers, in every comp, whose source the item is (direct uses only, as the Project
   panel's "Name ▾, used 3 times" header; its ▾ lists the comps and opens the one picked).

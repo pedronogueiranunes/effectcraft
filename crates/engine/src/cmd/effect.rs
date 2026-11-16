@@ -988,7 +988,7 @@ pub(crate) fn effect_time_error(cmd: &str) -> EngineError {
 
 /// Validate before Layer's saturating conversions, so a bad stretch or time never silently
 /// moves a copied key to another frame. Normal-speed layers keep their exact integer ticks.
-fn effect_time(layer: &Layer, time: Tick, to_comp: bool, cmd: &str) -> Result<Tick> {
+pub(crate) fn effect_time(layer: &Layer, time: Tick, to_comp: bool, cmd: &str) -> Result<Tick> {
     if !layer.stretch.is_finite() || layer.stretch == 0.0 {
         return Err(bad(cmd, "the layer has an invalid time stretch"));
     }
@@ -1092,6 +1092,7 @@ fn copy(s: &mut Session, p: &Value) -> Result<Value> {
     s.state.link_clipboard = None;
     s.state.clip_is_keys = false;
     let n = groups.len();
+    s.state.style_clipboard = None;
     s.state.effect_clipboard = groups;
     Ok(json!({"effects": n}))
 }

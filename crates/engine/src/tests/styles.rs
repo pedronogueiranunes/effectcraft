@@ -165,3 +165,136 @@ fn removing_the_last_style_keeps_changed_blending_options() {
     s.execute("layer.style.remove", json!({"layer": b, "style": "dropShadow"})).unwrap();
     assert!(s.active_comp().unwrap().layer(effectcraft_project::LayerId(b)).unwrap().layer_styles().is_none());
 }
+
+#[test]
+fn style_clipboard_replaces_styles_without_copying_layers_and_undoes_once() {
+    use effectcraft_project::LayerId;
+    let (mut s, a, b) = session();
+    s.execute("layer.style.stroke", json!({"layers": [a]})).unwrap();
+    s.execute("prop.set", json!({"layer": a, "path": "layerStyles/stroke/size", "value": 7})).unwrap();
+    s.execute("layer.style.toggle", json!({"layer": a, "style": "stroke", "value": false})).unwrap();
+    s.execute("layer.style.dropShadow", json!({"layers": [b]})).unwrap();
+    let group = s.active_comp().unwrap().layer(LayerId(a)).unwrap().layer_styles().unwrap().uid;
+    s.execute("prop.select", json!({"layer": a, "prop": group, "selectKeys": false})).unwrap();
+    let count = s.active_comp().unwrap().layers.len();
+    s.execute("edit.copy", json!({})).unwrap();
+    s.execute("layer.select", json!({"layers": [b]})).unwrap();
+    let before = s.project.to_json();
+    let history = s.history.undo.len();
+    let result = s.execute("edit.paste", json!({})).unwrap();
+    assert_eq!(result["layers"], json!([b]));
+    assert_eq!(s.active_comp().unwrap().layers.len(), count);
+    assert_eq!(styles_of(&s, b), vec![("stroke".into(), false)]);
+    let comp = s.active_comp().unwrap();
+    let source = comp.layer(LayerId(a)).unwrap().layer_styles().unwrap();
+    let pasted = comp.layer(LayerId(b)).unwrap().layer_styles().unwrap();
+    assert_ne!(source.uid, pasted.uid);
+    assert_ne!(source.prop("stroke/size").unwrap().uid, pasted.prop("stroke/size").unwrap().uid);
+    assert_eq!(pasted.prop("stroke/size").unwrap().value.as_f64(), 7.0);
+    assert_eq!(s.history.undo.len(), history + 1);
+    let after = s.project.to_json();
+    assert!(s.undo());
+    assert_eq!(s.project.to_json(), before);
+    assert!(s.redo());
+    assert_eq!(s.project.to_json(), after);
+    s.execute("prop.set", json!({"layer": b, "path": "layerStyles/stroke/size", "value": 12})).unwrap();
+    assert_eq!(s.active_comp().unwrap().layer(LayerId(a)).unwrap().layer_styles().unwrap().prop("stroke/size").unwrap().value.as_f64(), 7.0);
+    // Cutting the selected style group removes styles, never its layer.
+    s.execute("prop.select", json!({"layer": a, "prop": group})).unwrap();
+    s.execute("edit.cut", json!({})).unwrap();
+    assert_eq!(s.active_comp().unwrap().layers.len(), count);
+    assert!(s.active_comp().unwrap().layer(LayerId(a)).unwrap().layer_styles().is_none());
+    assert!(s.undo());
+    // A later layer copy takes precedence over the old style clipboard.
+    s.execute("edit.copy", json!({"layers": [a]})).unwrap();
+    assert!(s.execute("edit.paste", json!({})).unwrap().is_array());
+}
+
+#[test]
+fn style_clipboard_preserves_comp_time_animation_and_destination_global_light() {
+    use effectcraft_project::LayerId;
+    use effectcraft_time::FrameRate;
+    for (rate, stretch) in [FrameRate::FPS_30, FrameRate::FPS_29_97].into_iter().flat_map(|rate| [50, -50].map(|stretch| (rate, stretch))) {
+        let (mut s, a, _) = session();
+        s.execute("comp.settings", json!({"frameRate": rate.as_f64(), "duration": 10})).unwrap();
+        s.execute("layer.timeStretch", json!({"layers": [a], "percent": -200})).unwrap();
+        s.execute("layer.style.stroke", json!({"layers": [a]})).unwrap();
+        for (frame, value) in [(10, 4), (30, 12)] {
+            s.execute(
+                "prop.addKey",
+                json!({"layer": a, "path": "layerStyles/stroke/size", "time": rate.tick_of(frame).seconds(), "timeBase": "comp", "value": value}),
+            )
+            .unwrap();
+        }
+        s.execute("prop.setExpression", json!({"layer": a, "path": "layerStyles/stroke/opacity", "expression": "value / 2"})).unwrap();
+        s.execute("layer.style.globalLight", json!({"angle": 20})).unwrap();
+        s.execute("layer.style.copy", json!({"layer": a})).unwrap();
+        s.execute("comp.new", json!({"width": 64, "height": 64, "duration": 10, "frameRate": rate.as_f64()})).unwrap();
+        let b = s.execute("layer.newSolid", json!({"width": 8, "height": 8})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("layer.timeStretch", json!({"layers": [b], "percent": stretch})).unwrap();
+        s.execute("layer.style.globalLight", json!({"angle": 75})).unwrap();
+        s.set_time(rate.tick_of(60));
+        let target = s.active_comp_id().unwrap();
+        s.execute("comp.new", json!({"duration": 10, "frameRate": 24})).unwrap();
+        let other = s.execute("layer.newSolid", json!({"width": 8, "height": 8})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("prop.select", json!({"layer": other, "path": "transform/rotation"})).unwrap();
+        s.set_time(effectcraft_time::Tick::from_seconds_f64(7.0));
+        let active_selection = s.state.selected_props.clone();
+        s.execute("layer.style.paste", json!({"comp": target.0, "layers": [b]})).unwrap();
+        assert_eq!(s.state.selected_props, active_selection);
+        let layer = s.project.comp(target).unwrap().layer(LayerId(b)).unwrap();
+        let styles = layer.layer_styles().unwrap();
+        let prop = styles.prop("stroke/size").unwrap();
+        let mut keys: Vec<_> = prop.keys.iter().map(|k| (layer.comp_time(k.time), k.value.as_f64())).collect();
+        keys.sort_by_key(|k| k.0);
+        assert_eq!(keys, [(rate.tick_of(60), 4.0), (rate.tick_of(80), 12.0)], "{rate:?}, {stretch}");
+        assert_eq!(styles.prop("stroke/opacity").unwrap().expr.as_ref().unwrap().text, "value / 2");
+        assert_eq!(s.execute("layer.style.globalLight", json!({"comp": target.0})).unwrap()["angle"], 75.0);
+    }
+}
+
+#[test]
+fn style_clipboard_skips_locked_and_ineligible_layers_and_rejects_exhausted_ids() {
+    use effectcraft_project::LayerId;
+    let (mut s, a, b) = session();
+    assert!(s.execute("layer.style.paste", json!({"layers": [b]})).is_err());
+    s.execute("layer.style.stroke", json!({"layers": [a]})).unwrap();
+    s.execute("layer.style.copy", json!({"layer": a})).unwrap();
+    // Failed copying leaves the previous clipboard usable.
+    assert!(s.execute("layer.style.copy", json!({"layer": b})).is_err());
+    let locked = s.execute("layer.newSolid", json!({"width": 8, "height": 8})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("layer.setSwitch", json!({"layers": [locked], "switch": "lock", "value": true})).unwrap();
+    let camera = s.execute("layer.newCamera", json!({})).unwrap()["layer"].as_u64().unwrap();
+    let snapshot = s.project.to_json();
+    let history = s.history.undo.len();
+    assert!(s.execute("layer.style.paste", json!({"layers": [locked, camera]})).is_err());
+    assert_eq!(s.project.to_json(), snapshot);
+    assert_eq!(s.history.undo.len(), history);
+    assert_eq!(s.execute("layer.style.paste", json!({"layers": [b, locked, camera]})).unwrap()["layers"], json!([b]));
+    assert!(s.active_comp().unwrap().layer(LayerId(locked)).unwrap().layer_styles().is_none());
+    assert!(s.active_comp().unwrap().layer(LayerId(camera)).unwrap().layer_styles().is_none());
+    std::sync::Arc::make_mut(&mut s.project).next_id = u64::MAX;
+    let snapshot = s.project.to_json();
+    let history = s.history.undo.len();
+    assert!(s.execute("layer.style.paste", json!({"layers": [b]})).is_err());
+    assert_eq!(s.project.to_json(), snapshot);
+    assert_eq!(s.history.undo.len(), history);
+}
+
+#[test]
+fn style_clipboard_paste_invalidates_render_cache_and_survives_save() {
+    let (mut s, a, b) = session();
+    s.execute("layer.style.stroke", json!({"layers": [a]})).unwrap();
+    s.execute("prop.set", json!({"layer": a, "path": "layerStyles/stroke/size", "value": 6})).unwrap();
+    s.execute("layer.style.copy", json!({"layer": a})).unwrap();
+    s.execute("layer.setSwitch", json!({"layers": [a], "switch": "video", "value": false})).unwrap();
+    let cid = s.active_comp_id().unwrap();
+    let before = s.render(cid, s.time(), Default::default());
+    s.execute("layer.style.paste", json!({"layers": [b]})).unwrap();
+    let after = s.render(cid, s.time(), Default::default());
+    assert_ne!(before.data, after.data);
+    assert!(after.get(123, 50)[0] > 0.98 && after.get(123, 50)[1] < 0.02);
+    let back = effectcraft_project::Project::from_json(&s.project.to_json()).unwrap();
+    let rendered = effectcraft_render::render_frame(&back, cid, s.time(), 1.0);
+    assert_eq!(rendered.data, after.data);
+}

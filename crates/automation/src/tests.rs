@@ -2112,3 +2112,17 @@ fn bridged_contact_sheet_keeps_the_times_asked_for() {
     let info = call_json(&mut s, "render_frame", json!({"times": [1.5, 0.25, 3], "inline": false}));
     assert_eq!(info["times"], json!([1.5, 0.25, 3.0]));
 }
+
+#[test]
+fn layer_style_clipboard_works_over_mcp() {
+    let mut s = server();
+    let ex = |s: &mut McpServer, command: &str, params: Value| call_json(s, "execute_command", json!({"command": command, "params": params}));
+    ex(&mut s, "comp.new", json!({"width": 64, "height": 64}));
+    let a = ex(&mut s, "layer.newSolid", json!({"name": "Source", "width": 8, "height": 8}))["layer"].clone();
+    let b = ex(&mut s, "layer.newSolid", json!({"name": "Target", "width": 8, "height": 8}))["layer"].clone();
+    ex(&mut s, "layer.style.stroke", json!({"layers": [a]}));
+    ex(&mut s, "prop.set", json!({"layer": a, "path": "layerStyles/stroke/size", "value": 9}));
+    ex(&mut s, "layer.style.copy", json!({"layer": a}));
+    ex(&mut s, "layer.style.paste", json!({"layers": [b]}));
+    assert_eq!(call_json(&mut s, "get_property", json!({"layer": b, "path": "layerStyles/stroke/size"}))["value"], 9.0);
+}
