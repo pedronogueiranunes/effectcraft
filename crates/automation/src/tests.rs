@@ -2112,3 +2112,25 @@ fn bridged_contact_sheet_keeps_the_times_asked_for() {
     let info = call_json(&mut s, "render_frame", json!({"times": [1.5, 0.25, 3], "inline": false}));
     assert_eq!(info["times"], json!([1.5, 0.25, 3.0]));
 }
+
+#[test]
+fn compact_render_queue_add_is_discoverable_and_usable_over_mcp() {
+    let mut s = server();
+    call_json(&mut s, "execute_command", json!({"command": "comp.new", "params": {"width": 64, "height": 64, "duration": 1, "frameRate": 30}}));
+    let doc = call_json(&mut s, "describe_command", json!({"command": "renderQueue.add"}));
+    assert!(doc["schema"]["properties"]["compact"].is_object());
+    let brief = call_json(
+        &mut s,
+        "execute_command",
+        json!({"command": "renderQueue.add", "params": {"compact": true, "format": "png", "output": "/tmp/mcp-compact-queue.png"}}),
+    );
+    assert_eq!(brief.as_object().unwrap().len(), 6);
+    assert_eq!(brief["frames"], 30);
+    assert_eq!(brief["index"], 1);
+    let list = call_json(&mut s, "execute_command", json!({"command": "renderQueue.list"}));
+    let full = &list["items"][0];
+    assert_eq!(brief["item"], full["id"]);
+    assert_eq!(brief["status"], full["status"]);
+    assert_eq!(brief["outputPath"], full["outputPath"]);
+    assert!(full["settings"].is_object() && full["output"].is_object(), "inspection still returns full settings");
+}

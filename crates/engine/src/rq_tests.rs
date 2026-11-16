@@ -337,3 +337,60 @@ fn the_gpu_frames_setting_reaches_every_render_queue_job() {
     s.prefs.memory.gpu_frames_in_flight = "9".into();
     assert_eq!(s.prefs.memory.gpu_frames(), None);
 }
+
+#[test]
+fn compact_render_queue_add_is_opt_in_and_only_changes_the_reply() {
+    let mut replies = Vec::new();
+    let mut queues = Vec::new();
+    for compact in [None, Some(false), Some(true)] {
+        let mut s = Session::default();
+        let comp = s.execute("comp.new", json!({"name": "C", "width": 128, "height": 64, "duration": 3, "frameRate": 30})).unwrap()["comp"].clone();
+        s.execute("comp.new", json!({"name": "Other"})).unwrap();
+        s.execute("renderQueue.add", json!({"comp": "Other", "format": "png", "output": "/tmp/first.png"})).unwrap();
+        let mut args = json!({"comp": "C", "format": "png", "output": "/tmp/compact-queue.png", "resolution": "half", "timeSpan": "custom", "start": 1, "end": 2, "frameRate": 12, "channels": "rgba", "audio": "off", "log": "plusSettings"});
+        if let Some(compact) = compact {
+            args["compact"] = json!(compact);
+        }
+        let before = s.history.undo.len();
+        let reply = s.execute("renderQueue.add", args).unwrap();
+        assert_eq!(reply["comp"], comp, "the explicit comp, not the active one");
+        assert_eq!(reply["index"], 2);
+        assert_eq!(reply["frames"], 12);
+        assert_eq!(reply["status"], "Queued");
+        assert_eq!(s.history.undo.len(), before + 1);
+        let queue = s.project.render_queue.clone();
+        assert_eq!(queue.len(), 2);
+        s.undo();
+        assert_eq!(s.project.render_queue.len(), 1);
+        s.redo();
+        assert_eq!(s.project.render_queue, queue);
+        replies.push(reply);
+        queues.push(queue);
+    }
+    assert_eq!(replies[0], replies[1], "false keeps the exact default reply");
+    assert_eq!(queues[0], queues[1]);
+    assert_eq!(queues[0], queues[2], "compact does not change stored queue settings");
+    let full = &replies[0];
+    assert_eq!(
+        replies[2],
+        json!({"item": full["item"], "comp": full["comp"], "index": full["index"], "status": full["status"], "outputPath": full["outputPath"], "frames": full["frames"]})
+    );
+    assert!(full["settings"].is_object() && full["output"].is_object());
+    assert!(replies[2].to_string().len() * 4 < full.to_string().len());
+}
+
+#[test]
+fn compact_render_queue_add_preserves_errors_without_queue_edits() {
+    let mut s = Session::default();
+    s.execute("comp.new", json!({})).unwrap();
+    for params in [json!({"format": "not-a-format"}), json!({"comp": "missing"})] {
+        let mut compact = params.clone();
+        compact["compact"] = json!(true);
+        let revision = s.revision;
+        let steps = s.history.undo.len();
+        assert_eq!(s.execute("renderQueue.add", params).unwrap_err().to_string(), s.execute("renderQueue.add", compact).unwrap_err().to_string());
+        assert!(s.project.render_queue.is_empty());
+        assert_eq!(s.history.undo.len(), steps);
+        assert_eq!(s.revision, revision);
+    }
+}

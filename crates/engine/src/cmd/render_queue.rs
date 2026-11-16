@@ -577,8 +577,19 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
         proj.render_queue.push(it);
         Ok(id)
     })?;
-    let idx = s.project.render_queue.len() - 1;
-    let mut v = item_json(s, &s.project.render_queue[idx], idx);
+    let (idx, it) = s.project.render_queue.iter().enumerate().next_back().ok_or_else(|| bad("renderQueue.add", "added queue item is missing"))?;
+    if b_p(p, "compact").unwrap_or(false) {
+        let comp = s.project.comp(it.comp).ok_or_else(|| bad("renderQueue.add", "added composition is missing"))?;
+        return Ok(json!({
+            "item": id,
+            "comp": it.comp,
+            "index": idx + 1,
+            "status": it.status,
+            "outputPath": s.resolve_output(it),
+            "frames": it.settings.frame_count(comp),
+        }));
+    }
+    let mut v = item_json(s, it, idx);
     v["item"] = json!(id);
     Ok(v)
 }
@@ -1061,7 +1072,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add to Render Queue",
             ["Composition"],
             ["Cmd+M", "Cmd+Shift+/"],
-            "{comp?: id|name, template?: Render Settings template, format?: h264|hevc|av1|prores|uncompressed|webm|png|jpeg|tiff|exr|tga|gif|wav|aiff, output?: path|template, log?: errorsOnly|plusSettings|plusPerFrameInfo, quality?: best|draft|1-100 (jpeg, webm), resolution?: full|half|third|quarter|scale, proxyUse?, effects?, solo?, guideLayers?, colorDepth?, frameBlending?, fieldRender?, pulldown?, motionBlur?, timeSpan?: workArea|comp|custom, start?: s, end?: s, duration?: s, frameRate?: fps|null, skipExisting?: bool, storageOverflow?: bool, channels?: rgb|rgba|alpha, color?, bitrate?: kbps, webmBitrate?, keyframeInterval?, proresProfile?, exrCompression?, exrBitDepth?, profile?, level?, rateControl?, webmCodec?, audioBitrate?, opusApplication?, crop?, resize?, includeProjectLink?, audio?: auto|on|off, sampleRate?, audioChannels?, audioFormat?, loop?: bool (values as in setRenderSettings / setOutputModule)}",
+            "{comp?: id|name, compact?: bool (false: return item, comp, index, status, outputPath and frames only), template?: Render Settings template, format?: h264|hevc|av1|prores|uncompressed|webm|png|jpeg|tiff|exr|tga|gif|wav|aiff, output?: path|template, log?: errorsOnly|plusSettings|plusPerFrameInfo, quality?: best|draft|1-100 (jpeg, webm), resolution?: full|half|third|quarter|scale, proxyUse?, effects?, solo?, guideLayers?, colorDepth?, frameBlending?, fieldRender?, pulldown?, motionBlur?, timeSpan?: workArea|comp|custom, start?: s, end?: s, duration?: s, frameRate?: fps|null, skipExisting?: bool, storageOverflow?: bool, channels?: rgb|rgba|alpha, color?, bitrate?: kbps, webmBitrate?, keyframeInterval?, proresProfile?, exrCompression?, exrBitDepth?, profile?, level?, rateControl?, webmCodec?, audioBitrate?, opusApplication?, crop?, resize?, includeProjectLink?, audio?: auto|on|off, sampleRate?, audioChannels?, audioFormat?, loop?: bool (values as in setRenderSettings / setOutputModule)}",
             can_add,
             add
         ),
