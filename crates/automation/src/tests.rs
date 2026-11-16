@@ -2112,3 +2112,51 @@ fn bridged_contact_sheet_keeps_the_times_asked_for() {
     let info = call_json(&mut s, "render_frame", json!({"times": [1.5, 0.25, 3], "inline": false}));
     assert_eq!(info["times"], json!([1.5, 0.25, 3.0]));
 }
+
+#[test]
+fn compact_queue_render_over_mcp_preserves_failure_messages() {
+    struct Failing;
+    impl effectcraft_engine::Exporter for Failing {
+        fn formats(&self) -> Vec<effectcraft_engine::project::render_queue::OutputFormat> {
+            effectcraft_engine::project::render_queue::OutputFormat::ALL.to_vec()
+        }
+        fn export(&self, job: &effectcraft_engine::ExportJob, _: &mut dyn FnMut(u64, u64) -> bool) -> Result<effectcraft_engine::ExportResult, String> {
+            if job.path.contains("good.gif") {
+                return Ok(effectcraft_engine::ExportResult { path: job.path.to_string(), frames: 1, ..Default::default() });
+            }
+            Err("intentional encoder failure".into())
+        }
+    }
+    let session = Session { exporter: Some(std::sync::Arc::new(Failing)), ..Default::default() };
+    let mut s = McpServer::new(Backend::headless(session));
+    call_json(&mut s, "execute_command", json!({"command": "comp.new", "params": {"name": "C", "width": 8, "height": 8}}));
+    let dir = tempfile::tempdir().unwrap();
+    call_json(&mut s, "execute_command", json!({"command": "renderQueue.add", "params": {"format": "gif", "output": dir.path().join("bad.gif")}}));
+    let doc = call_json(&mut s, "describe_command", json!({"command": "renderQueue.render"}));
+    assert!(doc["schema"]["properties"]["compact"].is_object());
+    let reply = call_json(&mut s, "execute_command", json!({"command": "renderQueue.render", "params": {"wait": true, "compact": true}}));
+    assert_eq!(reply["rendering"], false);
+    assert_eq!(reply["items"][0]["compName"], "C");
+    assert_eq!(reply["items"][0]["status"], json!({"Failed": "intentional encoder failure"}));
+    assert_eq!(reply["items"][0].as_object().unwrap().len(), 8);
+    // serve() uses the cancellable long-job path for blocking renders, unlike handle_line().
+    call_json(&mut s, "execute_command", json!({"command": "renderQueue.setRender", "params": {"item": reply["items"][0]["id"], "render": true}}));
+    call_json(&mut s, "execute_command", json!({"command": "renderQueue.add", "params": {"format": "gif", "output": dir.path().join("good.gif")}}));
+    let (input, mut writer) = std::io::pipe().unwrap();
+    let (reader, output) = std::io::pipe().unwrap();
+    let server = std::thread::spawn(move || s.serve(BufReader::new(input), output).unwrap());
+    let request = json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"execute_command", "arguments":{"command":"renderQueue.render", "params":{"compact":true}}}});
+    writeln!(writer, "{request}").unwrap();
+    let line = BufReader::new(reader).lines().next().unwrap().unwrap();
+    let response: Value = serde_json::from_str(&line).unwrap();
+    drop(writer);
+    server.join().unwrap();
+    assert_eq!(response["result"]["isError"], true);
+    let rendered: Value = serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(rendered["failed"], 1, "count failures before omitting statusLabel");
+    assert_eq!(rendered["items"][0]["status"], json!({"Failed": "intentional encoder failure"}));
+    assert_eq!(rendered["items"][1]["status"], "Done");
+    for item in rendered["items"].as_array().unwrap() {
+        assert_eq!(item.as_object().unwrap().len(), 8, "the long-job reply must stay compact");
+    }
+}

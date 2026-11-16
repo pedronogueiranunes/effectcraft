@@ -545,6 +545,21 @@ fn item_json(s: &Session, it: &RenderQueueItem, index: usize) -> Value {
     v
 }
 
+/// Render summaries retain the raw status (including failure text) and comp name used by CLI
+/// error reporting. Missing compositions keep the same null name / zero frame count as full replies.
+fn compact_render_item(s: &Session, it: &RenderQueueItem, index: usize) -> Value {
+    json!({
+        "id": it.id,
+        "comp": it.comp,
+        "index": index + 1,
+        "compName": s.project.item(it.comp).map(|i| &i.name),
+        "status": it.status,
+        "outputPath": s.resolve_output(it),
+        "last_output": it.last_output,
+        "frames": s.project.comp(it.comp).map(|c| it.settings.frame_count(c)).unwrap_or(0),
+    })
+}
+
 fn add(s: &mut Session, p: &Value) -> Result<Value> {
     let cid = s.comp_for_queue(p)?;
     let mut it = RenderQueueItem::new(0, cid);
@@ -718,13 +733,14 @@ fn render(s: &mut Session, p: &Value) -> Result<Value> {
     let ids = s.start_render(wait).map_err(EngineError::Other)?;
     // Source refusals fail before the exporter starts. Report them just like encoding
     // failures, so CLI/MCP callers do not mistake a partly refused queue for full success.
+    let compact = b_p(p, "compact").unwrap_or(false);
     let items: Vec<Value> = s
         .project
         .render_queue
         .iter()
         .enumerate()
         .filter(|(_, i)| ids.contains(&i.id) || (queued.contains(&i.id) && matches!(i.status, RenderStatus::Failed(_))))
-        .map(|(k, i)| item_json(s, i, k))
+        .map(|(k, i)| if compact { compact_render_item(s, i, k) } else { item_json(s, i, k) })
         .collect();
     Ok(json!({"rendering": s.is_rendering(), "items": items}))
 }
@@ -1107,7 +1123,15 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("render.saveCurrentPreview", "Save Current Preview...", ["Composition"], None, "{comp?, path}", has_comp, save_current_preview),
         cmd!("renderQueue.move", "Move in Render Queue", [], None, "{item?|index?, to: n (1-based)}", has_items, move_item),
         cmd!("renderQueue.duplicate", "Duplicate Render Item", [], None, "{item?|index?}", has_items, duplicate),
-        cmd!("renderQueue.render", "Render", [], None, "{wait?: bool (default true; the UI renders in the background)}", has_queued, render),
+        cmd!(
+            "renderQueue.render",
+            "Render",
+            [],
+            None,
+            "{wait?: bool (default true; the UI renders in the background), compact?: bool (false: omit settings; retain item identity, status, failures and output information)}",
+            has_queued,
+            render
+        ),
         cmd!("renderQueue.stop", "Stop Rendering", [], None, "{}", rendering, stop),
         query!("renderQueue.list", "Render Queue Items", "{}", list),
         query!("renderQueue.templates", "Render Templates", "{}", templates),

@@ -351,7 +351,14 @@ build real projects through these interfaces; they are worked examples of everyt
   radius (`roundness`, layer pixels) is set when it's added and changed later with
   `mask.setRoundness {layer, mask, roundness}` (0 = square corners); it only reshapes a rectangular mask.
 * **Renders**: `renderQueue.add {comp, format: h264|prores|webm|png…, channels: rgba,
-  proresProfile: 4444, output}` then `renderQueue.render {"wait": true}`. Check a render by
+  proresProfile: 4444, output}` then `renderQueue.render {"wait": true}`. Pass `compact: true`
+  to `renderQueue.render` to keep `rendering` and only `id`, `comp`, `index` (1-based), `compName`,
+  `status`, `outputPath`, `last_output` and `frames` per returned item. `status` retains the raw
+  failure object and message; `last_output` is the last render’s output path (first file for a
+  sequence, or null), while `outputPath`
+  is the resolved planned path and `frames` is the planned output-frame count. Omitted or false
+  keeps the full reply. `wait: false` still returns the current running-job snapshot; inspect
+  progress and full settings with `renderQueue.list` (#3754). Check a render by
   importing it (`file.import`, `file.newCompFromSelection`) and `render_frame {transparent: true}`
   for its alpha (ProRes 4444 and WebM VP9 alpha both read back as straight alpha).
   OpenEXR sequences (`format: exr`) are scan-line files, linear and premultiplied, and take

@@ -337,3 +337,93 @@ fn the_gpu_frames_setting_reaches_every_render_queue_job() {
     s.prefs.memory.gpu_frames_in_flight = "9".into();
     assert_eq!(s.prefs.memory.gpu_frames(), None);
 }
+
+#[test]
+fn compact_queue_render_keeps_success_failures_and_default_replies() {
+    let dir = tempfile::tempdir().unwrap();
+    let protected = dir.path().join("protected.gif");
+    std::fs::write(&protected, b"project source").unwrap();
+    let mut replies = Vec::new();
+    for compact in [None, Some(false), Some(true)] {
+        let mut s = Session::default();
+        s.execute("comp.new", json!({"name": "C", "width": 8, "height": 8, "duration": 1, "frameRate": 30})).unwrap();
+        let exporter = Arc::new(MockExporter { log: Default::default() });
+        s.exporter = Some(exporter.clone());
+        s.path = Some(protected.to_string_lossy().into_owned());
+        for name in ["good.gif", "fail.gif", "protected.gif", "skip.gif"] {
+            s.execute("renderQueue.add", json!({"format": "gif", "output": dir.path().join(name)})).unwrap();
+        }
+        s.execute("renderQueue.setRender", json!({"index": 4, "render": false})).unwrap();
+        let mut args = json!({"wait": true});
+        if let Some(compact) = compact {
+            args["compact"] = json!(compact);
+        }
+        let mut reply = s.execute("renderQueue.render", args).unwrap();
+        assert_eq!(reply["rendering"], false);
+        let items = reply["items"].as_array_mut().unwrap();
+        assert_eq!(items.len(), 3, "include the pre-export source refusal, exclude the unchecked item");
+        assert_eq!(items[0]["status"], "Done");
+        assert!(items[0]["last_output"].as_str().unwrap().ends_with("good.gif"));
+        assert_eq!(items[1]["status"], json!({"Failed": "boom"}));
+        assert!(items[2]["status"]["Failed"].as_str().unwrap().contains("own file"));
+        for item in items {
+            assert_eq!(item["compName"], "C", "CLI failure messages keep their context");
+            assert_eq!(item["frames"], 30);
+            if compact != Some(true) {
+                assert!(item["settings"].is_object() && item["output"].is_object());
+                // Wall-clock metadata varies across otherwise identical renders.
+                item.as_object_mut().unwrap().remove("started");
+                item.as_object_mut().unwrap().remove("render_time");
+            }
+        }
+        assert_eq!(exporter.log.lock().unwrap().len(), 2, "refused sources never reach the exporter");
+        assert_eq!(std::fs::read(&protected).unwrap(), b"project source");
+        replies.push(reply);
+    }
+    assert_eq!(replies[0], replies[1], "false keeps the full default reply, apart from clock metadata");
+    let mut expected = replies[0].clone();
+    for item in expected["items"].as_array_mut().unwrap() {
+        item.as_object_mut()
+            .unwrap()
+            .retain(|key, _| ["id", "comp", "index", "compName", "status", "outputPath", "last_output", "frames"].contains(&key.as_str()));
+    }
+    assert_eq!(replies[2], expected);
+    assert!(replies[2].to_string().len() * 3 < replies[0].to_string().len());
+}
+
+#[test]
+fn compact_queue_render_can_reply_while_the_job_is_running() {
+    struct Gated(std::sync::mpsc::Sender<()>, Mutex<std::sync::mpsc::Receiver<()>>);
+    impl Exporter for Gated {
+        fn formats(&self) -> Vec<OutputFormat> {
+            OutputFormat::ALL.to_vec()
+        }
+        fn export(&self, job: &ExportJob, _: &mut dyn FnMut(u64, u64) -> bool) -> Result<ExportResult, String> {
+            self.0.send(()).map_err(|e| e.to_string())?;
+            self.1.lock().unwrap().recv_timeout(std::time::Duration::from_secs(5)).map_err(|e| e.to_string())?;
+            Ok(ExportResult { path: job.path.to_string(), frames: 1, ..Default::default() })
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let mut s = Session::default();
+    s.execute("comp.new", json!({"name": "C", "width": 8, "height": 8})).unwrap();
+    s.exporter = Some(Arc::new(Gated(entered_tx, Mutex::new(release_rx))));
+    let item = s.execute("renderQueue.add", json!({"format": "gif", "output": dir.path().join("async.gif")})).unwrap()["item"].clone();
+    let reply = s.execute("renderQueue.render", json!({"wait": false, "compact": true})).unwrap();
+    entered.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    // Release even when the assertions below fail; a test must never strand its worker.
+    release.send(()).unwrap();
+    assert_eq!(reply["rendering"], true);
+    assert_eq!(reply["items"][0]["id"], item);
+    assert_eq!(reply["items"][0].as_object().unwrap().len(), 8);
+    assert_ne!(reply["items"][0]["status"], "Done");
+    let start = std::time::Instant::now();
+    while s.is_rendering() {
+        assert!(start.elapsed().as_secs() < 5);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    s.poll_render();
+    assert_eq!(s.project.render_queue[0].status, RenderStatus::Done);
+}

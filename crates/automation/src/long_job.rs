@@ -159,7 +159,7 @@ impl McpServer {
         s.poll_render();
         s.drain_events();
         let list = self.guarded("command_run", &json!({"id": "renderQueue.list"}));
-        let items: Vec<Value> = match &list {
+        let mut items: Vec<Value> = match &list {
             Ok(Reply::Json(v)) => {
                 v["items"].as_array().cloned().unwrap_or_default().into_iter().filter(|i| i["id"].as_u64().is_some_and(|id| ids.contains(&id))).collect()
             }
@@ -170,6 +170,14 @@ impl McpServer {
             return Ok(open); // MCP: no response for a cancelled request
         }
         let failed = ids.len().saturating_sub(items.len()).saturating_add(items.iter().filter(|item| item["statusLabel"].as_str() != Some("Done")).count());
+        // Count failures from the full inspection before compact replies omit statusLabel.
+        if call.params.get("compact").and_then(Value::as_bool) == Some(true) {
+            for item in &mut items {
+                if let Some(object) = item.as_object_mut() {
+                    object.retain(|key, _| ["id", "comp", "index", "compName", "status", "outputPath", "last_output", "frames"].contains(&key.as_str()));
+                }
+            }
+        }
         let result = result_for(&call, Ok(Reply::Json(json!({"rendering": false, "items": items, "failed": failed}))));
         send(out, &json!({"jsonrpc": "2.0", "id": call.id, "result": result}))?;
         Ok(open)

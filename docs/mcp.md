@@ -3,6 +3,13 @@
 Run `effectcraft-cli mcp` for a headless session, or `effectcraft-cli mcp --bridge 9877`
 to use the desktop app's control channel. Existing ports are unchanged.
 
+## Compact render replies
+
+`renderQueue.render {"compact": true}` (through `command_run` or `execute_command`) omits
+per-item settings while retaining IDs, statuses, failure text and output information. The
+headless blocking-render path preserves its `failed` count and error flag; progress reporting
+and cancellation are unchanged. See [agent commands](agents.md) for the item fields (#3754).
+
 ## Confining file access
 
 `--automation-read-root DIR` and `--automation-write-root DIR` (each repeatable, as in
