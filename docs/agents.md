@@ -254,6 +254,13 @@ build real projects through these interfaces; they are worked examples of everyt
 * **Several footage items at once**: `file.newCompFromSelection {single, dimensionsFrom, duration,
   sequence, overlap, overlapDuration, transition, addToRenderQueue}` is one undo step (select the
   items first: `project.select`).
+* **Sequence layers**: `layer.sequence {layers?, reverse?, fromPlayhead?, overlap?, duration?,
+  transition?}` uses the supplied layer order, or selection order when `layers` is omitted.
+  `reverse: true` reverses that order. `fromPlayhead: true` places the first resulting layer at
+  the target composition's playhead; otherwise that layer keeps its in point. Both flags default
+  to `false`. Visible durations, stretch and layer-time animation are preserved, with one undo
+  step. For example, `{"layers":["A","B","C"],"reverse":true,"fromPlayhead":true}` sequences
+  C, B, then A from the playhead. Existing overlap and dissolve options still apply.
 * **Where an item is used**: `project.usedIn {item?}` → `{item, count, comps: [{id, name, layers}]}`
   counts the layers, in every comp, whose source the item is (direct uses only, as the Project
   panel's "Name ▾, used 3 times" header; its ▾ lists the comps and opens the one picked).

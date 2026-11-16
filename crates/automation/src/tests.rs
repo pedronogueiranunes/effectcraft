@@ -2112,3 +2112,22 @@ fn bridged_contact_sheet_keeps_the_times_asked_for() {
     let info = call_json(&mut s, "render_frame", json!({"times": [1.5, 0.25, 3], "inline": false}));
     assert_eq!(info["times"], json!([1.5, 0.25, 3.0]));
 }
+
+#[test]
+fn sequence_order_options_are_discoverable_and_work_over_mcp() {
+    let mut s = server();
+    let ex = |s: &mut McpServer, command: &str, params: Value| call_json(s, "execute_command", json!({"command": command, "params": params}));
+    ex(&mut s, "comp.new", json!({"width": 64, "height": 64, "duration": 20, "frameRate": 30}));
+    let a = ex(&mut s, "layer.newSolid", json!({"name": "A", "width": 8, "height": 8}))["layer"].clone();
+    let b = ex(&mut s, "layer.newSolid", json!({"name": "B", "width": 8, "height": 8}))["layer"].clone();
+    ex(&mut s, "layer.timing", json!({"layers": [a], "in": 1, "out": 3}));
+    ex(&mut s, "layer.timing", json!({"layers": [b], "in": 2, "out": 5}));
+    ex(&mut s, "time.set", json!({"frame": 90}));
+    let doc = call_json(&mut s, "describe_command", json!({"command": "layer.sequence"}));
+    for key in ["reverse", "fromPlayhead"] {
+        assert!(doc["schema"]["properties"][key].is_object(), "{doc}");
+    }
+    ex(&mut s, "layer.sequence", json!({"layers": [a, b], "reverse": true, "fromPlayhead": true}));
+    assert_eq!(call_json(&mut s, "get_layer", json!({"layer": b}))["in"], 3.0);
+    assert_eq!(call_json(&mut s, "get_layer", json!({"layer": a}))["in"], 6.0);
+}

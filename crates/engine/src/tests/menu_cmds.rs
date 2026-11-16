@@ -2725,3 +2725,101 @@ fn quick_set_anchor_keeps_a_parented_layer_in_place() {
     assert!(before.iter().zip(after).all(|(a, b)| (a - b).abs() < 1e-6), "{before:?} → {after:?}");
     assert_eq!(layer(&s, child).transform().unwrap().get("anchor").unwrap().value.as_vec3()[..2], [200.0, 100.0]);
 }
+
+fn sequence_options_fixture(rate: effectcraft_time::FrameRate) -> (Session, effectcraft_project::ItemId, Vec<u64>) {
+    let mut s = Session::default();
+    s.execute("comp.new", json!({"name": "Sequence", "width": 64, "height": 64, "duration": 20, "frameRate": rate.as_f64()})).unwrap();
+    let cid = s.active_comp_id().unwrap();
+    assert_eq!(s.project.comp(cid).unwrap().frame_rate, rate);
+    let mut ids = Vec::new();
+    for (i, (start, input, output, stretch)) in [(5, 15, 75, 100), (20, 40, 85, 50), (0, 25, 115, -200)].into_iter().enumerate() {
+        let id = s.execute("layer.newSolid", json!({"name": format!("L{i}"), "width": 8, "height": 8})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("layer.timeStretch", json!({"layers": [id], "percent": stretch})).unwrap();
+        s.execute("layer.timing", json!({"layers": [id], "start": rate.tick_of(start).seconds(), "out": rate.tick_of(output).seconds()})).unwrap();
+        s.execute("layer.timing", json!({"layers": [id], "in": rate.tick_of(input).seconds()})).unwrap();
+        for (time, value) in [(0, 10), (1, 80)] {
+            s.execute("prop.addKey", json!({"layer": id, "path": "transform/rotation", "time": time, "value": value})).unwrap();
+        }
+        ids.push(id);
+    }
+    s.set_time(rate.tick_of(120));
+    (s, cid, ids)
+}
+
+#[test]
+fn sequence_order_options_preserve_timing_animation_and_undo() {
+    use effectcraft_project::LayerId;
+    use effectcraft_time::FrameRate;
+    for rate in [FrameRate::FPS_30, FrameRate::FPS_29_97] {
+        for reverse in [false, true] {
+            for from_playhead in [false, true] {
+                for overlap in [false, true] {
+                    let (mut s, cid, ids) = sequence_options_fixture(rate);
+                    let before: Vec<_> = ids.iter().map(|id| s.project.comp(cid).unwrap().layer(LayerId(*id)).unwrap().clone()).collect();
+                    // An explicit comp uses its own CTI even while another comp is active.
+                    s.execute("comp.new", json!({"name": "Other", "duration": 20, "frameRate": 24})).unwrap();
+                    s.set_time(Tick::from_seconds_f64(9.0));
+                    let snapshot = s.project.to_json();
+                    let undo_steps = s.history.undo.len();
+                    let spacing = if overlap { rate.tick_of(6) } else { Tick::ZERO };
+                    s.execute("layer.sequence", json!({"comp": cid.0, "layers": ids, "reverse": reverse, "fromPlayhead": from_playhead, "overlap": overlap, "duration": spacing.seconds()})).unwrap();
+                    let mut order = vec![0, 1, 2];
+                    if reverse {
+                        order.reverse();
+                    }
+                    let mut at = if from_playhead { rate.tick_of(120) } else { before[order[0]].in_point };
+                    for i in order {
+                        let old = &before[i];
+                        let now = s.project.comp(cid).unwrap().layer(old.id).unwrap();
+                        assert_eq!(now.in_point, at, "{rate:?}, reverse={reverse}, fromPlayhead={from_playhead}, overlap={overlap}");
+                        assert_eq!(now.out_point - now.in_point, old.out_point - old.in_point);
+                        assert_eq!(now.start_time - old.start_time, at - old.in_point);
+                        assert_eq!(now.stretch, old.stretch);
+                        assert_eq!(serde_json::to_value(&now.props).unwrap(), serde_json::to_value(&old.props).unwrap());
+                        assert_eq!(now.layer_time(now.in_point + rate.tick_of(10)), old.layer_time(old.in_point + rate.tick_of(10)));
+                        at += old.out_point - old.in_point - spacing;
+                    }
+                    assert_eq!(s.time_of(cid), rate.tick_of(120));
+                    assert_eq!(s.time(), Tick::from_seconds_f64(9.0));
+                    assert_eq!(s.history.undo.len(), undo_steps + 1);
+                    let after = s.project.to_json();
+                    assert!(s.undo());
+                    assert_eq!(s.project.to_json(), snapshot);
+                    assert!(s.redo());
+                    assert_eq!(s.project.to_json(), after);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn sequence_order_options_default_to_current_selection_order() {
+    let mut results = Vec::new();
+    for explicit_false in [false, true] {
+        let (mut s, _, ids) = sequence_options_fixture(effectcraft_time::FrameRate::FPS_30);
+        s.execute("layer.select", json!({"layers": [ids[1], ids[0], ids[2]]})).unwrap();
+        let mut params = json!({});
+        if explicit_false {
+            params = json!({"reverse": false, "fromPlayhead": false});
+        }
+        s.execute("layer.sequence", params).unwrap();
+        assert_eq!(layer(&s, ids[1]).in_point, effectcraft_time::FrameRate::FPS_30.tick_of(40));
+        assert_eq!(layer(&s, ids[0]).in_point, effectcraft_time::FrameRate::FPS_30.tick_of(85));
+        assert_eq!(layer(&s, ids[2]).in_point, effectcraft_time::FrameRate::FPS_30.tick_of(145));
+        results.push(s.project.to_json());
+    }
+    assert_eq!(results[0], results[1]);
+}
+
+#[test]
+fn sequence_order_options_reject_invalid_targets_without_edits() {
+    let (mut s, _, ids) = sequence_options_fixture(effectcraft_time::FrameRate::FPS_30);
+    let snapshot = s.project.to_json();
+    let steps = s.history.undo.len();
+    for targets in [json!([ids[0]]), json!([ids[0], u64::MAX])] {
+        assert!(s.execute("layer.sequence", json!({"layers": targets, "reverse": true, "fromPlayhead": true})).is_err());
+        assert_eq!(s.project.to_json(), snapshot);
+        assert_eq!(s.history.undo.len(), steps);
+    }
+}

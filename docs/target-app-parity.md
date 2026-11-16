@@ -11,6 +11,11 @@ left. [gaps.md](gaps.md) lists every known shortfall one at a time; the
 [localization-parity.md](localization-parity.md), and the live measurements in
 [fidelity/](fidelity/README.md).
 
+Command workflow update ([#1777](https://github.com/storytold/effectcraft/issues/1777)):
+`layer.sequence` supports optional reverse order and starting at the target composition's
+playhead over CLI, control and MCP. This covers the command options only; sequencing-dialog
+controls and the issue's other requests remain outside this slice. No parity estimate changes.
+
 ## Headline
 
 | Number | Value | Kind |

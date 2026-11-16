@@ -895,19 +895,23 @@ fn reveal_expression_errors(s: &mut Session, p: &Value) -> Result<Value> {
 fn sequence(s: &mut Session, p: &Value) -> Result<Value> {
     let cid = comp_id(s, p)?;
     // Selection order (AE sequences in the order layers were selected).
-    let ids: Vec<LayerId> = match p.get("layers") {
+    let mut ids: Vec<LayerId> = match p.get("layers") {
         Some(_) => layers_p(s, p)?.1,
         None => s.state.selected_layers.clone(),
     };
     if ids.len() < 2 {
         return Err(bad("layer.sequence", "select two or more layers"));
     }
+    if b_p(p, "reverse").unwrap_or(false) {
+        ids.reverse();
+    }
+    let start = b_p(p, "fromPlayhead").unwrap_or(false).then(|| s.time_of(cid));
     let overlap = b_p(p, "overlap").unwrap_or(false);
     let dur = if overlap { Tick::from_seconds_f64(f_p(p, "duration").unwrap_or(1.0)) } else { Tick::ZERO };
     let transition = str_p(p, "transition").unwrap_or("off").to_string();
     s.edit("Sequence Layers", None, |proj, _| {
         let c = proj.comp_mut(cid).ok_or(EngineError::NoComp)?;
-        let mut next: Option<Tick> = None;
+        let mut next = start;
         for (k, lid) in ids.iter().enumerate() {
             let l = c.layer_mut(*lid).ok_or(EngineError::NoComp)?;
             if let Some(at) = next {
@@ -1009,7 +1013,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Sequence Layers...",
             ["Animation", "Keyframe Assistant"],
             None,
-            "{layers? (in order), overlap?: bool, duration? (s), transition?: off|dissolveFront|crossDissolve}",
+            "{layers? (in order), reverse?: bool, fromPlayhead?: bool, overlap?: bool, duration? (s), transition?: off|dissolveFront|crossDissolve}",
             has_multiple_layers,
             sequence
         ),
