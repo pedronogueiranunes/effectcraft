@@ -10,6 +10,11 @@ the evidence listed, not measurements. Hours are Opus 5.5 agent wall-clock hours
 [target-app-parity.md](target-app-parity.md#calibration-of-the-hours). Update this file when the
 evidence changes.
 
+Timeline workflow update ([#3685](https://github.com/storytold/effectcraft/issues/3685)):
+the Layer Name / Source Name column supports edge dragging, keyboard steps, numeric width and
+reset controls, with a persisted workspace preference and command/automation access. Narrow
+panels preserve room for the time graph. No parity estimates were re-measured.
+
 ## Two different questions
 
 **Feature breadth ≈ 91%** answers *does each After Effects feature exist?* Every one of After

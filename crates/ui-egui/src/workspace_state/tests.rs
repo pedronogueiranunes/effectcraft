@@ -367,3 +367,31 @@ fn failed_write_keeps_previous_snapshot_and_retries() {
     WorkspaceStore::load(Some(&config), &mut restored);
     assert_eq!(restored.focused, PanelKind::Timeline);
 }
+
+#[test]
+fn timeline_name_width_is_saved_restored_and_optional_in_older_workspaces() {
+    let config = MemoryConfig::default();
+    let mut ui = UiState::default();
+    let mut store = WorkspaceStore::load(Some(&config), &mut ui);
+    ui.timeline.name_width = Some(360.0);
+    assert!(store.has_changes(&ui));
+    assert!(store.save(Some(&config), &ui).unwrap());
+    let mut restored = UiState::default();
+    assert!(WorkspaceStore::load(Some(&config), &mut restored).error.is_none());
+    assert_eq!(restored.timeline.name_width, Some(360.0));
+    let mut older: serde_json::Value = serde_json::from_str(&config.read(FILE).unwrap()).unwrap();
+    older.as_object_mut().unwrap().remove("timeline_name_width");
+    config.write(FILE, &older.to_string()).unwrap();
+    let mut restored = UiState::default();
+    assert!(WorkspaceStore::load(Some(&config), &mut restored).error.is_none());
+    assert_eq!(restored.timeline.name_width, None);
+    // A hostile width must not replace the existing layout file on a later save.
+    older["timeline_name_width"] = serde_json::json!(1e30);
+    let text = older.to_string();
+    config.write(FILE, &text).unwrap();
+    let mut store = WorkspaceStore::load(Some(&config), &mut restored);
+    assert!(store.error.is_some());
+    restored.timeline.name_width = Some(240.0);
+    assert!(!store.save(Some(&config), &restored).unwrap());
+    assert_eq!(config.read(FILE), Some(text));
+}

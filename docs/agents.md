@@ -172,6 +172,11 @@ instead of being ignored.
 4. `execute_command {"command":"effect.apply","params":{"layer":2,"effect":"Gaussian Blur"}}`, then `set_property {"layer":2,"path":"effects/#1/blurriness","value":8}`
 5. `render_frame {"time":1.0}` lets you look at the result, and `save_project {"path":"intro.ecproj"}` saves it.
 
+With a running UI bridge, `execute_command` can call `timeline.nameWidth` with `{"width":360}`
+to resize the shared Timeline Layer Name / Source Name column. Omit `width` to query it or use
+`null` to restore automatic sizing. The 120–1200-point preference persists with workspace
+settings. The headless engine has no Timeline; see [control protocol](control-protocol.md#timeline-name-column-width).
+
 ### Cookbook
 
 Short recipes; every step is one tool call.

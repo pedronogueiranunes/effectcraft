@@ -386,6 +386,9 @@ pub struct TimelineState {
     pub scroll_y: f32,
     /// Left column area width.
     pub columns_w: f32,
+    /// Preferred Layer Name / Source Name width in points; None keeps the automatic layout.
+    #[serde(default)]
+    pub name_width: Option<f32>,
     /// Horizontal scroll of the outline columns (pixels) when they are wider than the pane.
     #[serde(default)]
     pub outline_scroll: f32,
@@ -473,6 +476,11 @@ fn yes() -> bool {
     true
 }
 
+impl TimelineState {
+    pub(crate) const MIN_NAME_WIDTH: f32 = 120.0;
+    pub(crate) const MAX_NAME_WIDTH: f32 = 1200.0;
+}
+
 impl Default for TimelineState {
     fn default() -> Self {
         TimelineState {
@@ -481,6 +489,7 @@ impl Default for TimelineState {
             before_fit: None,
             scroll_y: 0.0,
             columns_w: 560.0,
+            name_width: None,
             outline_scroll: 0.0,
             show_modes: false,
             graph_editor: false,

@@ -11,6 +11,11 @@ left. [gaps.md](gaps.md) lists every known shortfall one at a time; the
 [localization-parity.md](localization-parity.md), and the live measurements in
 [fidelity/](fidelity/README.md).
 
+Timeline workflow update ([#3685](https://github.com/storytold/effectcraft/issues/3685)):
+the Layer Name / Source Name column supports edge dragging, keyboard steps, numeric width and
+reset controls, with a persisted workspace preference and command/automation access. Narrow
+panels preserve room for the time graph. No parity estimates were re-measured.
+
 ## Headline
 
 | Number | Value | Kind |

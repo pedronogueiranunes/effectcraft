@@ -119,6 +119,7 @@ pub(super) fn migrate(value: serde_json::Value, ui: &UiState) -> Result<(Snapsho
         focused: old.focused,
         maximized: old.maximized,
         saved_workspaces: named(old.saved_workspaces, old.saved_floating)?,
+        timeline_name_width: None,
     };
     Ok((snapshot, outer))
 }

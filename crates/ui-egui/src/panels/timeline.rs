@@ -6,6 +6,8 @@
 //! keyframe navigator, scrubbable values). Right: time navigator, ruler with work area and cache
 //! bar, layer duration bars, keyframes, the CTI, and the value graph editor.
 
+use crate::state::TimelineState;
+
 use effectcraft_engine::color::BlendMode;
 use effectcraft_engine::keyframe::{Interp, Value};
 use effectcraft_engine::project::{
@@ -1808,10 +1810,13 @@ fn layout(app: &mut EffectcraftApp, ui: &egui::Ui, rect: Rect, cid: ItemId, comp
     let colhdr_h = 22.0;
     let footer_h = 24.0;
     let vis = Vis::of(&app.ui.timeline);
-    let left_w = (vis.fixed() + 190.0).clamp(420.0, (rect.width() * 0.72).max(420.0));
+    let preferred = app.ui.timeline.name_width.filter(|w| w.is_finite()).map(|w| w.clamp(TimelineState::MIN_NAME_WIDTH, TimelineState::MAX_NAME_WIDTH));
+    let natural_w = vis.fixed() + preferred.unwrap_or(190.0);
+    // Leave the graph usable even when the preferred name is wider than this panel.
+    let max_left = (rect.width() * 0.72).max(0.0);
+    let left_w = if preferred.is_some() { natural_w.min(max_left) } else { natural_w.clamp(420.0_f32.min(max_left), max_left) };
     // Columns wider than the pane scroll horizontally (Shift+wheel / trackpad over the outline,
     // or the scroll bar above the footer); the name column keeps its minimum width.
-    let natural_w = vis.fixed() + 190.0;
     let overflow = (natural_w - left_w).max(0.0);
     app.ui.timeline.outline_scroll = app.ui.timeline.outline_scroll.clamp(0.0, overflow);
     let oscroll = app.ui.timeline.outline_scroll;
@@ -2788,9 +2793,43 @@ fn column_header_interact(app: &mut EffectcraftApp, ui: &mut egui::Ui, g: &mut T
             app.auto.add(&format!("timeline.header.{id}"), Rect::from_min_size(pos2(x0.0, ch.min.y), vec2(x0.1, colhdr_h)), label);
         }
     }
+    // Same edge gesture as the Project panel's Name column; keep header-mode clicks separate.
+    let edge = Rect::from_center_size(pos2(cw.name_end, ch.center().y), vec2(8.0, colhdr_h)).intersect(hdr_rect);
+    if edge.is_positive() {
+        let resize = ui.interact(edge, egui::Id::unique("timeline-name-edge"), Sense::click_and_drag());
+        app.auto.add_response("timeline.nameColumn.edge", &resize, "Drag to resize the Name column; double-click to reset");
+        resize.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::tr("Resize the Name column")));
+        if resize.hovered() || resize.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+            ui.painter().line_segment([pos2(cw.name_end, ch.min.y + 3.0), pos2(cw.name_end, ch.max.y - 3.0)], Stroke::new(1.0, app.tokens.text_dim));
+        }
+        crate::widgets::focus_outline(ui, &resize, &app.tokens);
+        let key_step = if resize.has_focus() {
+            ui.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) {
+                    -10.0
+                } else if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight) {
+                    10.0
+                } else {
+                    0.0
+                }
+            })
+        } else {
+            0.0
+        };
+        if resize.double_clicked() {
+            actions.push(("timeline.nameWidth".into(), json!({"width": null})));
+        } else if resize.dragged() || key_step != 0.0 {
+            let step = if resize.dragged() { resize.drag_delta().x } else { key_step };
+            let width = (cw.name_end - cw.name + step).clamp(TimelineState::MIN_NAME_WIDTH, TimelineState::MAX_NAME_WIDTH);
+            actions.push(("timeline.nameWidth".into(), json!({"width": width})));
+        }
+        let _ = resize.on_hover_text(crate::i18n::tr("Drag to resize the Name column; double-click to reset"));
+    }
     if hresp.clicked()
         && let Some(pt) = hresp.interact_pointer_pos()
         && column_at(cw, pt.x) == Some("name")
+        && (pt.x - cw.name_end).abs() > 4.0
     {
         app.ui.timeline.source_name = !app.ui.timeline.source_name;
     }
@@ -2802,6 +2841,20 @@ fn column_header_interact(app: &mut EffectcraftApp, ui: &mut egui::Ui, g: &mut T
         let under: &str = ctx.data(|d| d.get_temp(egui::Id::unique("tl-colhdr-under"))).unwrap_or("");
         if !under.is_empty() && under != "name" && ui.button(crate::i18n::tr("Hide This")).clicked() {
             actions.push(("timeline.column".into(), json!({"column": under, "visible": false})));
+            ui.close();
+        }
+        ui.horizontal(|ui| {
+            ui.label(crate::i18n::tr("Name column width"));
+            let mut width = cw.name_end - cw.name;
+            let response = ui.add(egui::DragValue::new(&mut width).range(TimelineState::MIN_NAME_WIDTH..=TimelineState::MAX_NAME_WIDTH).suffix(" px"));
+            crate::a11y::name(&response, crate::i18n::tr("Name column width"));
+            app.auto.add_response("timeline.nameColumn.width", &response, "Name column width");
+            if response.changed() && width.is_finite() {
+                actions.push(("timeline.nameWidth".into(), json!({"width": width})));
+            }
+        });
+        if ui.button(crate::i18n::tr("Reset Name Column Width")).clicked() {
+            actions.push(("timeline.nameWidth".into(), json!({"width": null})));
             ui.close();
         }
         ui.menu_button(crate::i18n::tr("Columns"), |ui| {

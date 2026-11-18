@@ -28,6 +28,8 @@ struct Snapshot {
     focused: PanelKind,
     maximized: Option<PanelKind>,
     saved_workspaces: BTreeMap<String, Workspace>,
+    #[serde(default)]
+    timeline_name_width: Option<f32>,
 }
 
 impl Snapshot {
@@ -39,6 +41,7 @@ impl Snapshot {
             focused: ui.focused,
             maximized: ui.maximized,
             saved_workspaces: ui.saved_workspaces.clone(),
+            timeline_name_width: ui.timeline.name_width,
         }
     }
 
@@ -48,6 +51,7 @@ impl Snapshot {
         ui.focused = self.focused;
         ui.maximized = self.maximized;
         ui.saved_workspaces = self.saved_workspaces;
+        ui.timeline.name_width = self.timeline_name_width;
         // A native window's place is made safe to hand to the windowing system.
         for workspace in std::iter::once(&mut ui.dock).chain(ui.saved_workspaces.values_mut()) {
             for window in &mut workspace.layout.floating {
@@ -68,6 +72,12 @@ impl Snapshot {
     fn validate(&self) -> Result<(), String> {
         if self.version != VERSION {
             return Err(format!("unsupported workspace version {}", self.version));
+        }
+        if self
+            .timeline_name_width
+            .is_some_and(|w| !w.is_finite() || !(crate::state::TimelineState::MIN_NAME_WIDTH..=crate::state::TimelineState::MAX_NAME_WIDTH).contains(&w))
+        {
+            return Err("timeline name width must be 120–1200 points".into());
         }
         let name_ok = |name: &str| !name.trim().is_empty() && name.len() <= 256;
         if !name_ok(&self.workspace) || self.saved_workspaces.len() > MAX_WORKSPACES || self.saved_workspaces.keys().any(|name| !name_ok(name)) {
@@ -163,6 +173,7 @@ impl WorkspaceStore {
             || self.saved.focused != ui.focused
             || self.saved.maximized != ui.maximized
             || self.saved.saved_workspaces != ui.saved_workspaces
+            || self.saved.timeline_name_width != ui.timeline.name_width
     }
 
     pub(crate) fn save(&mut self, config: Option<&dyn ConfigStore>, ui: &UiState) -> Result<bool, String> {

@@ -45,7 +45,7 @@ printf '{"id":1,"method":"engine.execute","params":{"command":"comp.new","params
 | `engine.execute` | `{command, params?}` | The command's result. Every engine command (`effectcraft-cli commands`) runs exactly as it does headless, so it never opens a dialog: `comp.new {}` creates a default comp. UI-only ids (`tool.*`, `view.*`, `window.*`, `playback.*`, `timeline.*`, `app.*`) fall through to the menu dispatcher. Unknown top-level params are rejected, and the error lists the accepted keys. |
 | `ui.menu.invoke` | `{id, params?}` | Like a menu click: commands with empty params may open their dialog (New Composition, Solid Settings, file pickers). |
 | Copy a Media Browser source path | `ui.menu.invoke {id: "mediaBrowser.copySourcePath", params: {path}}` | Copies the exact non-empty path string to the clipboard and returns `{path}`. Supports file/folder paths and virtual source identifiers. Missing, empty or non-string paths return an error. |
-| UI commands (via either) | | `timeline.column {column, visible?}` (av, keys, label, num, comment, switches, modes, parent, in, out, duration, stretch), `timeline.sourceName {value?}`, `timeline.search {query}`, `timeline.reveal.<kind>` / `timeline.revealAdd.<kind>` (the property shortcuts and Shift+shortcut: position, scale, rotation, opacity, anchor, effects, masks, feather, levels, animated, and the double-press sets maskPath, maskOpacity, timeRemap, expressions, material, paint, selected, missingEffects, waveform), `timeline.keyAt.<anchor\|position\|scale\|rotation\|opacity>` (Alt+Shift+A/P/S/R/T), `timeline.twirlSelected` ``(Ctrl/Cmd+`)``, `timeline.collapseAll`, `flowchart.options {layers?, effects?, solids?, direction?: lr\|tb, comp?}`, `flowchart.graph {comp?}` → `{nodes, edges}`, `window.workspace {name}` (all After Effects workspaces). |
+| UI commands (via either) | | `timeline.column {column, visible?}` (av, keys, label, num, comment, switches, modes, parent, in, out, duration, stretch), `timeline.sourceName {value?}`, `timeline.nameWidth {width?: 120..1200 or null}` (logical points; omitted queries the preferred width, null restores automatic sizing; shared by Layer Name and Source Name), `timeline.search {query}`, `timeline.reveal.<kind>` / `timeline.revealAdd.<kind>` (the property shortcuts and Shift+shortcut: position, scale, rotation, opacity, anchor, effects, masks, feather, levels, animated, and the double-press sets maskPath, maskOpacity, timeRemap, expressions, material, paint, selected, missingEffects, waveform), `timeline.keyAt.<anchor\|position\|scale\|rotation\|opacity>` (Alt+Shift+A/P/S/R/T), `timeline.twirlSelected` ``(Ctrl/Cmd+`)``, `timeline.collapseAll`, `flowchart.options {layers?, effects?, solids?, direction?: lr\|tb, comp?}`, `flowchart.graph {comp?}` → `{nodes, edges}`, `window.workspace {name}` (all After Effects workspaces). |
 | `engine.commands` | `{filter?, enabledOnly?}` | `[{id, label, menu, shortcut, params, enabled, why}]` |
 | `ui.menu.list` | `{}` | The menu tree with enablement. |
 | `render.frame` | `{comp?, time?, max_side?, path?, base64?, write?}` | Renders a comp frame through the session, independent of the viewer zoom or resolution. `comp` is an id or name (default: the active comp), `time` is in comp seconds (default: the CTI), `max_side` caps the longest side (0 = full size). Writes a PNG to `path` (default: a temp file) and returns `{comp, time, width, height, path}`. With `base64: true` it returns `{…, png: "<base64>"}` and writes no file unless `write: true` also requests a guarded write in the same app operation. |
@@ -279,3 +279,18 @@ window's outer position to its content's, by the main window's title bar, before
 Panels that were closed stay closed and reopen at their default place. The first save writes version 2 and keeps
 the earlier file as `workspaces.old.json`. A damaged, unknown or newer file loads as the default
 layout and is left unchanged.
+
+### Timeline name column width
+
+Drag the right edge of the Layer Name / Source Name header to resize that column. A focused
+edge responds to Left/Right in 10-point steps; double-click resets the automatic width. The
+header's context menu also has a numeric width field and a reset button. Automation IDs are
+`timeline.nameColumn.edge` and `timeline.nameColumn.width` (the latter while the menu is open).
+`engine.execute {"command":"timeline.nameWidth","params":{"width":360}}` uses the same
+frontend dispatcher; `{"width":null}` resets, and `{}` returns the saved preference. This UI-only
+command requires a running UI when used through CLI/MCP (`--bridge PORT`).
+
+The width is shared by the two name modes and saved as a current workspace preference in
+`workspaces.json`, without changing named layout snapshots, project data or undo history.
+Older workspace files keep automatic sizing. Narrow panels retain space for the time graph;
+outline columns that no longer fit use the existing horizontal scroll bar.

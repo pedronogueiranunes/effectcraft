@@ -617,6 +617,21 @@ pub fn invoke(app: &mut EffectcraftApp, ctx: &egui::Context, id: &str, params: V
                 crate::panels::timeline::COLUMNS.iter().map(|c| c.0).filter(|c| crate::panels::timeline::column_visible(&app.ui.timeline, c)).collect();
             return Ok(json!({"columns": shown}));
         }
+        "timeline.nameWidth" => {
+            use crate::state::TimelineState;
+            if let Some(width) = params.get("width") {
+                app.ui.timeline.name_width = if width.is_null() {
+                    None
+                } else {
+                    let w = width
+                        .as_f64()
+                        .filter(|w| w.is_finite() && *w >= f64::from(TimelineState::MIN_NAME_WIDTH) && *w <= f64::from(TimelineState::MAX_NAME_WIDTH))
+                        .ok_or("timeline.nameWidth: width must be 120–1200 points, or null to reset")?;
+                    Some(w as f32)
+                };
+            }
+            return Ok(json!({"width": app.ui.timeline.name_width}));
+        }
         "timeline.sourceName" => {
             let tl = &mut app.ui.timeline;
             tl.source_name = params.get("value").and_then(Value::as_bool).unwrap_or(!tl.source_name);

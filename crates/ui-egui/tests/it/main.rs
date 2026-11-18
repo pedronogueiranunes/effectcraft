@@ -103,6 +103,7 @@ mod ui_timeline_effect_label;
 mod ui_timeline_group_select;
 mod ui_timeline_interacting;
 mod ui_timeline_marquee;
+mod ui_timeline_name_width;
 mod ui_timeline_pan;
 mod ui_timeline_shapes;
 mod ui_timeline_switches;
